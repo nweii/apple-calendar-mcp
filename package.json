@@ -13,6 +13,9 @@
   },
   "cloudflare": {
     "bindings": {
+      "OAUTH_KV": {
+        "description": "Stores OAuth client registrations, grants, and tokens. Create a new namespace for this deployment. It does not store calendar events."
+      },
       "ICLOUD_USERNAME": {
         "description": "Full email address used for the Apple Account and iCloud Calendar."
       },
@@ -20,7 +23,10 @@
         "description": "App-specific password created at https://account.apple.com/. See https://support.apple.com/102654."
       },
       "APPROVAL_PASSWORD": {
-        "description": "A separate, unique password that protects new MCP client approvals."
+        "description": "A separate password that protects new MCP client approvals. This field is required for the default setup. Do not reuse an Apple password."
+      },
+      "CALENDAR_TIME_ZONE": {
+        "description": "Default IANA time zone for calendars without one, such as `America/New_York`. Cloudflare cannot detect it automatically."
       }
     }
   },

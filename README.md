@@ -41,9 +41,9 @@ Apple requires two-factor authentication for app-specific passwords. You can hav
    - `ICLOUD_USERNAME`: the full email address used for your Apple Account and iCloud Calendar.
    - `ICLOUD_APP_PASSWORD`: the app-specific password that Apple generated. Preserve it exactly.
    - `APPROVAL_PASSWORD`: a separate, unique password that protects new MCP client approvals. Do not reuse either Apple password.
-4. Wait for the Worker deployment to finish.
-5. Open **Workers & Pages**, select the Worker, then select **Settings** and find **Variables and Secrets**.
-6. Change `CALENDAR_TIME_ZONE` from `UTC` to your IANA time zone name, then deploy the setting.
+4. Change `CALENDAR_TIME_ZONE` from `UTC` to your IANA time zone name. Cloudflare cannot detect your time zone automatically.
+5. Turn off **Protect with Cloudflare Access**. The Worker uses MCP OAuth for client access.
+6. Deploy the Worker and wait for the deployment to finish.
 7. Copy the endpoint in this form: `https://<worker-name>.<account-subdomain>.workers.dev/mcp`.
 
 Cloudflare stores the three secret values as encrypted Worker secrets. The deployment form does not write them to the generated repository or to a local `.dev.vars` file.
@@ -133,9 +133,13 @@ The hostname is part of the OAuth identity. Tokens issued for `workers.dev` do n
 
 ## Add Cloudflare Access
 
-The built-in approval password is the default authorization guard. Cloudflare Access is optional defense in depth.
+The built-in approval password is the default authorization guard. Turn off the Access switch in the deployment form.
 
-If you add Access, protect only `<hostname>/authorize`. Leave `/mcp`, `/.well-known/*`, `/oauth/token`, and `/oauth/register` reachable by MCP clients. After you verify that Access protects `/authorize`, add `EXTERNAL_AUTHORIZATION=true` as a plain-text Worker variable.
+**Previews only** does not protect the production Worker. **All traffic** also protects MCP and OAuth endpoints that clients must reach.
+
+To replace the approval password with Access, deploy the Worker first. Then create a path-based Access application for `<hostname>/authorize`.
+
+Leave `/mcp`, `/.well-known/*`, `/oauth/token`, and `/oauth/register` reachable by MCP clients. When Access protects `/authorize`, add `EXTERNAL_AUTHORIZATION=true` as a plain-text Worker variable.
 
 > [!WARNING]
 > Set `EXTERNAL_AUTHORIZATION=true` only after an outside guard protects `/authorize`. The setting declares that the outside guard is active.
