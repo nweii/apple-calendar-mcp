@@ -141,6 +141,8 @@ To replace the approval password with Access, deploy the Worker first. Then crea
 
 Leave `/mcp`, `/.well-known/*`, `/oauth/token`, and `/oauth/register` reachable by MCP clients. When Access protects `/authorize`, add `EXTERNAL_AUTHORIZATION=true` as a plain-text Worker variable.
 
+To use Access without an approval password, delete `APPROVAL_PASSWORD` only after you deploy `EXTERNAL_AUTHORIZATION=true`. If both settings exist, users must pass both checks.
+
 > [!WARNING]
 > Set `EXTERNAL_AUTHORIZATION=true` only after an outside guard protects `/authorize`. The setting declares that the outside guard is active.
 
