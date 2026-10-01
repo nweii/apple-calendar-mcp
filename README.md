@@ -4,6 +4,13 @@ Give AI assistants read and write access to your iCloud calendars without keepin
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/nweii/apple-calendar-mcp)
 
+## Features
+
+- **Self-hosted in your Cloudflare account.** You control the server, credentials, and client access. The project maintainer has no access to your deployment or calendar data.
+- **No device to keep online.** Cloudflare runs the server, so your Mac, iPhone, and home server can be offline.
+- **Read and write access.** Search events, check availability, create and edit events, delete them, and respond to invitations. You choose each client's permission.
+- **Apple Calendar details.** Supports time zones, recurring events, notes, URLs, alerts, and structured locations with map previews when verified coordinates are provided.
+
 For guided setup, use the [agent setup prompt](docs/agent-setup-prompt.md).
 
 ## Before you deploy
@@ -140,7 +147,9 @@ To use Access without an approval password, delete `APPROVAL_PASSWORD` only afte
 
 ## Security
 
-The Worker uses your Apple username and app-specific password to connect to iCloud. Cloudflare stores the credentials as encrypted secrets. Connected AI clients receive calendar results, not your Apple password.
+This is a self-hosted deployment in your Cloudflare account. You control its code, secrets, and connected clients, and you can update or disable it yourself. The project maintainer does not operate your server or receive your credentials or calendar data.
+
+The Worker uses your Apple username and app-specific password to connect to iCloud. Cloudflare stores the credentials as encrypted secrets and runs the code that processes calendar requests. Calendar data passes through your Worker to the AI clients you authorize; those clients receive calendar results, not your Apple password.
 
 `APPROVAL_PASSWORD` protects new client connections. Approval is unavailable unless a password is configured or you enable the Access configuration described above. Anyone who can pass this check can connect a client to the configured Apple Account.
 
