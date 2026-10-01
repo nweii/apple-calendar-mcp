@@ -1,10 +1,10 @@
 # Apple Calendar MCP
 
-Apple Calendar MCP gives an AI client remote read and write access to one iCloud Calendar account. It runs as a stateless TypeScript Worker on Cloudflare and does not require an Apple device to stay online.
+Give AI assistants read and write access to your iCloud calendars without keeping an Apple device online. Apple Calendar MCP runs in your own Cloudflare account, with one Apple Account per deployment.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/nweii/apple-calendar-mcp)
 
-One deployment connects to one Apple Account. This is not a multi-user calendar service.
+For guided setup, use the [agent setup prompt](docs/agent-setup-prompt.md).
 
 ## Before you deploy
 
@@ -15,7 +15,7 @@ You need:
 - An MCP client that supports remote HTTPS servers and OAuth.
 - Your [IANA time zone name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones), such as `America/New_York`.
 
-An agent can guide you and verify the setup without knowing your passwords. Sign in to Apple yourself and enter the app-specific password and approval password directly in Cloudflare. You do not need to submit your Apple password to an AI service.
+An agent can guide you and verify setup without knowing your passwords. Sign in to Apple yourself and enter the app-specific password and approval password directly in Cloudflare.
 
 ## Create an Apple app-specific password
 
@@ -25,7 +25,7 @@ An agent can guide you and verify the setup without knowing your passwords. Sign
 4. Give it a clear label, such as `Apple Calendar MCP`.
 5. Keep the generated value on the Apple page until Cloudflare asks for it.
 
-Apple requires two-factor authentication for app-specific passwords. You can have up to 25 active passwords. You can revoke one or all of them. Changing or resetting your main Apple Account password revokes all app-specific passwords. See [Apple's app-specific password instructions](https://support.apple.com/102654).
+Changing or resetting your main Apple Account password revokes all app-specific passwords. See [Apple's instructions](https://support.apple.com/102654) for generating and revoking them.
 
 Apple doesn't let you restrict an app-specific password to Calendar. This server uses it only to access your calendars.
 
@@ -33,20 +33,20 @@ Apple doesn't let you restrict an app-specific password to Calendar. This server
 
 1. Select **Deploy to Cloudflare** at the top of this page.
 2. Sign in to Cloudflare and follow the deployment form.
-3. Enter the three secret values when Cloudflare asks for them:
+3. Fill in the secret fields:
    - `ICLOUD_USERNAME`: the full email address used for your Apple Account and iCloud Calendar.
-   - `ICLOUD_APP_PASSWORD`: the app-specific password that Apple generated. Preserve it exactly.
-   - `APPROVAL_PASSWORD`: a separate, unique password that protects new MCP client approvals. Do not reuse either Apple password.
+   - `ICLOUD_APP_PASSWORD`: the app-specific password that Apple generated.
+   - `APPROVAL_PASSWORD`: a separate password for approving client connections. Choose one you don't use for Apple.
 4. Change `CALENDAR_TIME_ZONE` from `UTC` to your IANA time zone name. Cloudflare cannot detect your time zone automatically.
-5. Turn off **Protect with Cloudflare Access**. The Worker uses MCP OAuth for client access.
+5. Turn off **Protect with Cloudflare Access**. The built-in approval page handles client connections; that toggle can block them. To use Access instead, follow [Add Cloudflare Access](#add-cloudflare-access) after deployment.
 6. Deploy the Worker and wait for the deployment to finish.
 7. Copy the endpoint in this form: `https://<worker-name>.<account-subdomain>.workers.dev/mcp`.
 
-Cloudflare stores the three secret values as encrypted Worker secrets. The deployment form does not write them to the generated repository or to a local `.dev.vars` file.
+Cloudflare stores these values as encrypted secrets, outside the generated repository.
 
 If you skipped a secret or need to replace one, open **Workers & Pages**, select the Worker, select **Settings**, find **Variables and Secrets**, add or edit the value as a **Secret**, and select **Deploy**.
 
-Cloudflare automatically provisions the `OAUTH_KV` namespace. Do not add a KV ID to `wrangler.jsonc`.
+Cloudflare creates `OAUTH_KV` automatically to store client registrations and authorizations. It does not store calendar events.
 
 ## Connect an MCP client
 
@@ -61,10 +61,10 @@ For Claude, see [Use custom connectors with remote MCP](https://support.claude.c
 
 The approval page offers two permissions:
 
-- **Read calendars and events** grants `calendar:read` and exposes seven read tools.
-- **Read and edit calendars and events** grants `calendar:read calendar:write` and adds four mutation tools.
+- **Read calendars and events** enables the seven read tools.
+- **Read and edit calendars and events** also enables creation, editing, deletion, and invitation responses.
 
-Changing permission requires authorization again and a tool-catalog refresh. A server update does not add write tools to an existing read-only grant.
+To change a client's permission, authorize it again and refresh its tools.
 
 > [!WARNING]
 > Write actions involving attendees or invitations can send email or notifications to other people.
@@ -77,9 +77,9 @@ Verify read access first:
 2. Call `calendar_list_calendars`. Confirm that the expected calendar names appear.
 3. If you approved read-only access, confirm that the client does not show mutation tools.
 
-Deployment, secret entry, OAuth connection, and a successful calendar read are separate states. A successful calendar read proves that the Apple credential works.
+A successful calendar read confirms that the Apple credential works. Connecting the client alone does not.
 
-To verify write access, first create an empty temporary calendar in Apple Calendar. Ask the agent to run this bounded test only after you confirm:
+To test writes, create an empty temporary calendar in Apple Calendar and ask the agent to:
 
 1. Create one future event with a unique title, no attendees, no recurrence, and no alerts.
 2. Read the event and keep its current ETag.
@@ -87,9 +87,7 @@ To verify write access, first create an empty temporary calendar in Apple Calend
 4. Read the event again and use the returned ETag to delete it.
 5. Confirm that the event is absent.
 
-If cleanup fails, record the exact calendar, title, and time so that you can remove the event yourself. Do not test writes on your default calendar.
-
-You can also give an agent the bounded procedure in [Set up Apple Calendar MCP with an agent](docs/agent-setup-prompt.md).
+Keep this test in the temporary calendar. If cleanup fails, have the agent give you the calendar, title, and time so you can remove the event yourself.
 
 ## Tools
 
@@ -117,7 +115,7 @@ Timed inputs use RFC 3339 timestamps with `Z` or an explicit offset. Clients can
 
 ## Use a custom domain
 
-The default `workers.dev` endpoint needs no hostname configuration. A custom domain requires one explicit allowlist setting:
+The default `workers.dev` address works without extra configuration. To use your own domain:
 
 1. Open the Worker in Cloudflare.
 2. Select **Settings > Domains & Routes > Add > Custom Domain** and add the hostname.
@@ -125,13 +123,11 @@ The default `workers.dev` endpoint needs no hostname configuration. A custom dom
 4. Deploy the setting.
 5. Connect clients again at `https://<custom-host>/mcp` and complete authorization again.
 
-The hostname is part of the OAuth identity. Tokens issued for `workers.dev` do not move to the custom origin.
+Clients need to reconnect when you change the server's hostname.
 
 ## Add Cloudflare Access
 
-The built-in approval password is the default authorization guard. Turn off the Access switch in the deployment form.
-
-**Previews only** does not protect the production Worker. **All traffic** also protects MCP and OAuth endpoints that clients must reach.
+Cloudflare Access can replace the approval password. Configure it after deployment: the form's **Previews only** option does not protect your live server, while **All traffic** can block client connections.
 
 To replace the approval password with Access, deploy the Worker first. Then create a path-based Access application for `<hostname>/authorize`.
 
@@ -140,26 +136,26 @@ Leave `/mcp`, `/.well-known/*`, `/oauth/token`, and `/oauth/register` reachable 
 To use Access without an approval password, delete `APPROVAL_PASSWORD` only after you deploy `EXTERNAL_AUTHORIZATION=true`. If both settings exist, users must pass both checks.
 
 > [!WARNING]
-> Set `EXTERNAL_AUTHORIZATION=true` only after an outside guard protects `/authorize`. The setting declares that the outside guard is active.
+> Set `EXTERNAL_AUTHORIZATION=true` only after Access protects `/authorize`. This setting disables the requirement for an approval password; it does not configure Access for you.
 
 ## Security
 
-The Worker receives your Apple username and app-specific password at runtime. You trust your Cloudflare account, the deployed source, Apple, and every connected MCP client. Restrict access to your Cloudflare account and connect only clients you trust.
+The Worker uses your Apple username and app-specific password to connect to iCloud. Cloudflare stores the credentials as encrypted secrets. Connected AI clients receive calendar results, not your Apple password.
 
-`APPROVAL_PASSWORD` protects new approvals. The approval route fails closed unless this password is configured or `EXTERNAL_AUTHORIZATION` declares a verified outside guard. Anyone who passes the guard can authorize a client against the configured Apple account.
+`APPROVAL_PASSWORD` protects new client connections. Approval is unavailable unless a password is configured or you enable the Access configuration described above. Anyone who can pass this check can connect a client to the configured Apple Account.
 
 > [!WARNING]
 > Rotating `APPROVAL_PASSWORD` does not revoke OAuth tokens that were already issued.
 
-Cloudflare's OAuth provider stores access tokens, refresh tokens, authorization codes, and registered client secrets by hash. It encrypts authorization properties. Client names and grant metadata remain visible in storage, so they must not contain secrets. See the provider's [KV storage and cleanup documentation](https://github.com/cloudflare/workers-oauth-provider#kv-storage-and-cleanup).
+OAuth credentials are stored as hashes in KV, with authorization properties encrypted. Client names and permission records remain readable. See the OAuth provider's [storage documentation](https://github.com/cloudflare/workers-oauth-provider#kv-storage-and-cleanup) for details.
 
-The Worker sends Apple credentials only over HTTPS to allowlisted iCloud CalDAV hosts. Tool arguments cannot choose an upstream host. Errors redact credential-like values. The Worker does not log tool arguments or event payloads.
+The Worker sends Apple credentials only to approved iCloud Calendar hosts over HTTPS. Tool inputs cannot redirect those requests. Errors redact credentials, and the Worker does not log tool inputs or event contents.
 
 Tool results can include titles, notes, locations, attendees, and URLs. MCP clients can retain this data under their own product and workspace policies.
 
-Write access covers event creation, changes, deletion, and invitation responses. ETags prevent overwriting a newer event, but they cannot make an unintended write harmless. Unrelated updates preserve unsupported Apple properties when possible.
+Write access allows event creation, editing, deletion, and invitation responses. Updates check for newer edits before saving and preserve unsupported Apple properties when possible. Changes involving attendees can send notifications.
 
-Deploy from this canonical repository or from a fork whose changes you reviewed. A remote MCP server can change its tool catalog when its owner deploys new code.
+Review source changes before deploying updates, and connect only AI clients you trust.
 
 ### Revoke or rotate access
 

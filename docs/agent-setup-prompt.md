@@ -5,19 +5,12 @@ Copy the prompt below into an agent that can inspect your Cloudflare deployment 
 ```text
 Help me set up Apple Calendar MCP by following the repository README for current UI details.
 
-1. Ask me to enter `ICLOUD_USERNAME`, `ICLOUD_APP_PASSWORD`, and `APPROVAL_PASSWORD` in Cloudflare.
-2. Explain that you can verify the setup without knowing my passwords. Name the fields and guide me to enter their values directly in Cloudflare.
-3. Ask me to set `CALENDAR_TIME_ZONE` to my IANA time zone. Cloudflare cannot detect it automatically.
-4. Ask me to turn off **Protect with Cloudflare Access**. The Worker uses MCP OAuth for client access.
-5. Resume when I say that the form is configured. Inspect the deployment and return the exact HTTPS endpoint that ends in `/mcp`.
-6. Report the Worker as deployed only after that endpoint responds. Report the Apple credential as working only after a calendar read succeeds.
-7. Guide me through adding the endpoint to my MCP client. Pause while I review the client name and requested Calendar permission.
-8. Refresh the client tool catalog. Run `calendar_get_profile` and `calendar_list_calendars`.
-9. Report these states separately: deployed, secrets configured, OAuth connected, and read verified.
-10. If I approved write access, explain the disposable-calendar canary from the README. Ask before you create anything.
-11. Use only the temporary calendar. Report write verified and cleanup confirmed as separate states.
-12. If the server rejects the iCloud password, direct me to replace the Apple app-specific password in Apple and Cloudflare.
-13. If tools are missing after a scope or deployment change, refresh the tool catalog. Disconnect and authorize again if necessary.
+1. Guide me through the README's deployment steps. Have me enter the secrets directly in Cloudflare, set my IANA time zone, and turn off the deployment form's **Protect with Cloudflare Access** switch. You can verify setup without knowing my passwords.
+2. Wait for me to confirm that the form is configured. Inspect the deployment, check that its endpoint responds, and return the exact HTTPS URL ending in `/mcp`.
+3. Guide me through adding that URL to my MCP client. Wait while I review the client name and choose read-only or read/write permission.
+4. Refresh the client's tools. Run `calendar_get_profile` and `calendar_list_calendars`; confirm the account, time zone, and expected calendars. Only a successful calendar read verifies the Apple credential.
+5. If I want to test writes, explain the README's temporary-calendar test and get my confirmation before creating an event. Use only that calendar, read the latest ETag before each change, and confirm that the test event is gone afterward. If cleanup fails, give me its calendar, title, and time.
+6. If iCloud rejects the credential, guide me to replace the app-specific password in Apple and Cloudflare. If tools are missing, refresh them, then reconnect with the intended permission if necessary.
 
-Finish by returning the endpoint, the permission I approved, the read-check result, the optional write-canary result, and any cleanup still required. Do not infer success from deployment, OAuth approval, or tool discovery alone.
+Finish with the endpoint, approved permission, read-check result, write-test result if requested, and any cleanup still required. State any incomplete setup step directly.
 ```
