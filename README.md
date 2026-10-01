@@ -15,10 +15,7 @@ You need:
 - An MCP client that supports remote HTTPS servers and OAuth.
 - Your [IANA time zone name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones), such as `America/New_York`.
 
-Open the Apple and Cloudflare setup pages yourself. An agent can guide you and verify the result, but it should not receive or enter your passwords.
-
-> [!WARNING]
-> Never paste your Apple Account password, Apple app-specific password, or approval password into chat, source control, logs, or issues.
+An agent can guide you and verify the setup without knowing your passwords. Sign in to Apple yourself and enter the app-specific password and approval password directly in Cloudflare. You do not need to submit your Apple password to an AI service.
 
 ## Create an Apple app-specific password
 
@@ -30,8 +27,7 @@ Open the Apple and Cloudflare setup pages yourself. An agent can guide you and v
 
 Apple requires two-factor authentication for app-specific passwords. You can have up to 25 active passwords. You can revoke one or all of them. Changing or resetting your main Apple Account password revokes all app-specific passwords. See [Apple's app-specific password instructions](https://support.apple.com/102654).
 
-> [!WARNING]
-> The Apple app-specific password is broader than the Calendar permissions that this MCP shows to clients. The Worker limits itself to allowlisted iCloud CalDAV hosts, but Apple does not issue a Calendar-only app-specific password.
+Apple doesn't let you restrict an app-specific password to Calendar. This server uses it only to access your calendars.
 
 ## Deploy to Cloudflare
 
@@ -179,7 +175,7 @@ If you suspect compromise, revoke the old Apple app-specific password first. The
 
 ## Troubleshooting
 
-- A `401` or iCloud password rejection usually means that the app-specific password is missing or revoked. Create or replace it in Apple and Cloudflare. Do not paste it into chat.
+- A `401` or iCloud password rejection usually means that the app-specific password is missing or revoked. Create or replace it in Apple and Cloudflare.
 - Missing write tools usually mean that the client has a read-only grant or a cached tool catalog. Refresh tools, then disconnect and authorize again if needed.
 - A custom domain that rejects `/mcp` usually has a missing or invalid `MCP_HOSTNAME`. Set the exact hostname and redeploy.
 - An approval page that fails closed has neither `APPROVAL_PASSWORD` nor a declared external guard. Add the approval secret unless you have already verified Cloudflare Access on `/authorize`.
