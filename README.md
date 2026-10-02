@@ -1,15 +1,18 @@
 # Apple Calendar MCP
 
-Give AI assistants read and write access to your iCloud calendars without keeping an Apple device online. Apple Calendar MCP runs in your own Cloudflare account, with one Apple Account per deployment.
+Give Claude, ChatGPT, and other compatible AI assistants remote read and write access to your iCloud calendars.
+
+Apple Calendar MCP runs headlessly in your own Cloudflare account. You don't need a Mac or another computer hosting a local MCP server. Each deployment serves one Apple Account.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/nweii/apple-calendar-mcp)
 
 ## Features
 
-- **Self-hosted in your Cloudflare account.** You control the server, credentials, and client access. The project maintainer has no access to your deployment or calendar data.
-- **No device to keep online.** Cloudflare runs the server, so your Mac, iPhone, and home server can be offline.
-- **Read and write access.** Search events, check availability, create and edit events, delete them, and respond to invitations. You choose each client's permission.
-- **Apple Calendar details.** Supports time zones, recurring events, notes, URLs, alerts, and structured locations with map previews when verified coordinates are provided.
+- **Remote calendar access from anywhere.** Connect compatible AI clients over HTTPS using a Cloudflare `workers.dev` address or your own custom domain.
+- **Self-hosted and under your control.** Runs in your Cloudflare account. You control the server, credentials, and which clients can access your calendars.
+- **Configurable permissions.** Give each client read-only access to search events and check availability, or write access to create, edit, and delete events and respond to invitations.
+- **Locations with Apple Calendar map previews.** Events created or edited by an AI assistant can include a place name, address, and verified coordinates so Apple Calendar displays its map preview.
+- **Time zones and recurring schedules.** Create one-off or recurring events with time zone support, notes, URLs, and alerts.
 
 For guided setup, use the [agent setup prompt](docs/agent-setup-prompt.md).
 
