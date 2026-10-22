@@ -186,7 +186,11 @@ function toolFailure(error: unknown) {
 }
 
 export function createCalendarServer(env: ToolEnv, scopes: readonly string[] = ["calendar:read"]) {
-  const server = new McpServer({ name: "apple-calendar-mcp-server", version: "0.3.1" });
+  // Bounds the tools/call arguments the SDK will validate; Workers accept far larger bodies than any calendar tool needs.
+  const server = new McpServer(
+    { name: "apple-calendar-mcp-server", version: "0.3.1" },
+    { maxToolInputElements: 10_000 },
+  );
   const granted = new Set(scopes);
 
   if (granted.has("calendar:read")) {
