@@ -32,7 +32,7 @@
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "0.10.3",
-    "@modelcontextprotocol/server": "2.0.0",
+    "@modelcontextprotocol/server": "2.3.1",
     "agents": "0.21.0",
     "ical.js": "2.2.1",
     "timezones-ical-library": "2.3.0",
@@ -42,11 +42,14 @@
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.1.0",
     "@cloudflare/workers-types": "5.20260826.1",
-    "@modelcontextprotocol/client": "2.0.0",
+    "@modelcontextprotocol/client": "2.3.1",
     "@msw/cloudflare": "0.0.1",
     "msw": "2.14.0",
     "typescript": "5.9.2",
     "vitest": "4.1.11",
     "wrangler": "4.126.0"
+  },
+  "overrides": {
+    "@modelcontextprotocol/sdk": "1.32.1"
   }
 }
