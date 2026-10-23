@@ -166,7 +166,7 @@ async function fetchEventsForCalendar(
     },
   });
   const defaultTimeZone = calendarTimeZone(calendar, fallbackTimeZone);
-  const objectUrls = objects.flatMap((object) => typeof object.data === "string" && /^RECURRENCE-ID[;:]/mi.test(object.data)
+  const objectUrls = objects.flatMap((object) => typeof object.data === "string"
     ? [new URL(object.url).href]
     : []);
   const originals = objectUrls.length > 0
@@ -191,9 +191,8 @@ async function fetchEventsForCalendar(
       defaultTimeZone,
       ...(object.etag ? { etag: object.etag } : {}),
     };
-    return originalData && recurringTimeZone
-      ? parseExpandedIcsEvents(object.data, originalData, context, recurringTimeZone)
-      : parseIcsEvents(object.data, context);
+    if (!originalData) throw new Error("Apple did not return the canonical event for an expanded calendar result.");
+    return parseExpandedIcsEvents(object.data, originalData, context, recurringTimeZone);
   });
 }
 

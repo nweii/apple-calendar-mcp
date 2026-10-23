@@ -34,6 +34,20 @@ END:VTIMEZONE\r
 END:VCALENDAR`;
 
 describe("iCalendar event model", () => {
+  it.each([
+    { name: "floating calendar time", parameter: "", suffix: "", zone: "America/New_York", start: "2026-10-20T13:00:00.000Z", end: "2026-10-20T14:00:00.000Z", local: "2026-10-20T09:00:00-04:00" },
+    { name: "declared IANA time without VTIMEZONE", parameter: ";TZID=America/New_York", suffix: "", zone: "America/New_York", start: "2026-10-20T13:00:00.000Z", end: "2026-10-20T14:00:00.000Z", local: "2026-10-20T09:00:00-04:00" },
+    { name: "declared zone before calendar fallback", parameter: ";TZID=America/Los_Angeles", suffix: "", zone: "America/Los_Angeles", start: "2026-10-20T16:00:00.000Z", end: "2026-10-20T17:00:00.000Z", local: "2026-10-20T09:00:00-07:00" },
+    { name: "UTC instant with calendar display zone", parameter: "", suffix: "Z", zone: "America/New_York", start: "2026-10-20T09:00:00.000Z", end: "2026-10-20T10:00:00.000Z", local: "2026-10-20T05:00:00-04:00" },
+  ])("resolves $name before canonical serialization", ({ parameter, suffix, zone, start, end, local }) => {
+    const source = ["BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT", "UID:zone-fixture",
+      `DTSTART${parameter}:20261020T090000${suffix}`, `DTEND${parameter}:20261020T100000${suffix}`,
+      `RECURRENCE-ID${parameter}:20261020T090000${suffix}`, "CREATED:20261001T120000Z", "SUMMARY:Review", "END:VEVENT", "END:VCALENDAR"].join("\r\n");
+    expect(parseIcsEvents(source, { ...context, defaultTimeZone: "America/New_York" })[0]).toMatchObject({
+      start, end, startLocal: local, timeZone: zone, recurrenceId: start, created: "2026-10-01T12:00:00.000Z", allDay: false,
+    });
+  });
+
   it("creates and parses recurring events with attendees and reminders", () => {
     const built = buildEventCalendar({
       title: "Weekly review",
@@ -233,6 +247,224 @@ END:VCALENDAR`);
       startLocal: "2026-11-05T11:00:00-05:00",
       recurrenceId: "2026-11-05T14:00:00.000Z",
     });
+  });
+
+  it("uses canonical timestamps for non-recurring expanded events", () => {
+    const source = buildEventCalendar({ title: "Screening", start: "2026-10-20T18:00:00-04:00", end: "2026-10-20T20:25:00-04:00", timeZone: "America/New_York" }, "owner@example.com").data;
+    const expanded = source.replace("DTSTART;TZID=America/New_York:20261020T180000", "DTSTART:20261020T180000Z").replace("DTEND;TZID=America/New_York:20261020T202500", "DTEND:20261020T202500Z");
+    expect(parseExpandedIcsEvents(expanded, source, context)[0]).toMatchObject({ start: "2026-10-20T22:00:00.000Z", end: "2026-10-21T00:25:00.000Z", startLocal: "2026-10-20T18:00:00-04:00" });
+  });
+
+  it("normalizes mixed expanded all-day recurrence types before date arithmetic", () => {
+    const source = buildEventCalendar({ title: "Monthly reminder", start: "2026-09-20", end: "2026-09-21", allDay: true, recurrence: ["RRULE:FREQ=MONTHLY"] }, "owner@example.com").data;
+    const expanded = `BEGIN:VCALENDAR\r
+VERSION:2.0\r
+BEGIN:VEVENT\r
+UID:all-day-fixture\r
+DTSTART;VALUE=DATE:20261020\r
+DTEND;VALUE=DATE:20261021\r
+RECURRENCE-ID:20261020T000000Z\r
+SUMMARY:Monthly reminder\r
+END:VEVENT\r
+END:VCALENDAR`;
+    expect(parseExpandedIcsEvents(expanded, source, context)[0]).toMatchObject({ start: "2026-10-20", end: "2026-10-21", recurrenceId: "2026-10-20", allDay: true });
+    const timedExpansion = expanded.replace("DTSTART;VALUE=DATE:20261020", "DTSTART:20261020T000000Z").replace("DTEND;VALUE=DATE:20261021", "DTEND:20261021T000000Z");
+    expect(parseExpandedIcsEvents(timedExpansion, source, context)[0]).toMatchObject({ start: "2026-10-20", end: "2026-10-21", recurrenceId: "2026-10-20", allDay: true });
+  });
+
+  it("preserves moved all-day exceptions and exclusive multiday ends", () => {
+    const source = buildEventCalendar({ title: "Trip", start: "2026-09-20", end: "2026-09-23", allDay: true, recurrence: ["RRULE:FREQ=MONTHLY"] }, "owner@example.com").data;
+    const moved = patchEventCalendar(source, { start: "2026-10-22", end: "2026-10-26", allDay: true }, "owner@example.com", new Date("2026-09-01T00:00:00Z"), "this_instance", "2026-10-20");
+    const expanded = `BEGIN:VCALENDAR\r
+VERSION:2.0\r
+BEGIN:VEVENT\r
+UID:all-day-fixture\r
+DTSTART:20261022T000000Z\r
+DTEND:20261026T000000Z\r
+RECURRENCE-ID:20261020T000000Z\r
+SUMMARY:Trip\r
+END:VEVENT\r
+END:VCALENDAR`;
+    expect(parseExpandedIcsEvents(expanded, moved, context)[0]).toMatchObject({ start: "2026-10-22", end: "2026-10-26", recurrenceId: "2026-10-20", allDay: true });
+    expect(parseExpandedIcsEvents(expanded, source, context)[0]).toMatchObject({ start: "2026-10-20", end: "2026-10-23", recurrenceId: "2026-10-20", allDay: true });
+  });
+
+  it("preserves timed exceptions to all-day series and inherited expanded metadata", () => {
+    const source = buildEventCalendar({
+      title: "Monthly review", start: "2026-09-20", end: "2026-09-21", allDay: true,
+      recurrence: ["RRULE:FREQ=MONTHLY"],
+    }, "owner@example.com", { uid: "type-changing-series" }).data;
+    const moved = patchEventCalendar(source, {
+      allDay: false, start: "2026-10-20T14:00:00-07:00", end: "2026-10-20T15:00:00-07:00", timeZone: "America/Los_Angeles",
+    }, "owner@example.com", new Date("2026-09-01T00:00:00Z"), "this_instance", "2026-10-20");
+    const root = ICAL.Component.fromString(moved);
+    const exception = root.getAllSubcomponents("vevent")[1];
+    exception?.removeAllProperties("summary");
+    const expanded = `BEGIN:VCALENDAR\r
+VERSION:2.0\r
+BEGIN:VEVENT\r
+UID:type-changing-series\r
+DTSTART:20261020T140000Z\r
+DTEND:20261020T150000Z\r
+RECURRENCE-ID:20261020T000000Z\r
+SUMMARY:Monthly review\r
+BEGIN:VALARM\r
+ACTION:DISPLAY\r
+TRIGGER:-PT15M\r
+DESCRIPTION:Reminder\r
+END:VALARM\r
+END:VEVENT\r
+END:VCALENDAR`;
+    expect(parseExpandedIcsEvents(expanded, root.toString(), context, "America/New_York")[0]).toMatchObject({
+      title: "Monthly review", allDay: false,
+      start: "2026-10-20T21:00:00.000Z", end: "2026-10-20T22:00:00.000Z",
+      timeZone: "America/Los_Angeles", startLocal: "2026-10-20T14:00:00-07:00", endLocal: "2026-10-20T15:00:00-07:00",
+      recurrenceId: "2026-10-20", reminders: [{ action: "display", minutesBefore: 15, description: "Reminder" }],
+    });
+  });
+
+  it("preserves all-day exceptions to timed series without stale local timestamps", () => {
+    const source = buildEventCalendar({
+      title: "Weekly review", start: "2026-10-20T09:00:00-04:00", end: "2026-10-20T10:00:00-04:00", timeZone: "America/New_York",
+      recurrence: ["RRULE:FREQ=WEEKLY"],
+    }, "owner@example.com", { uid: "timed-series" }).data;
+    const moved = patchEventCalendar(source, {
+      allDay: true, start: "2026-10-28", end: "2026-10-30",
+    }, "owner@example.com", new Date("2026-10-01T00:00:00Z"), "this_instance", "2026-10-27T13:00:00Z");
+    const expanded = `BEGIN:VCALENDAR\r
+VERSION:2.0\r
+BEGIN:VEVENT\r
+UID:timed-series\r
+DTSTART:20261028T000000Z\r
+DTEND:20261030T000000Z\r
+RECURRENCE-ID:20261027T130000Z\r
+SUMMARY:Weekly review\r
+END:VEVENT\r
+END:VCALENDAR`;
+    const event = parseExpandedIcsEvents(expanded, moved, context, "America/New_York")[0];
+    expect(event).toMatchObject({ allDay: true, start: "2026-10-28", end: "2026-10-30", recurrenceId: "2026-10-27T13:00:00.000Z" });
+    expect(event).not.toHaveProperty("timeZone");
+    expect(event).not.toHaveProperty("startLocal");
+    expect(event).not.toHaveProperty("endLocal");
+  });
+
+  it("uses a timed exception's zone instead of the series zone", () => {
+    const source = buildEventCalendar({
+      title: "Weekly review", start: "2026-10-20T09:00:00-04:00", end: "2026-10-20T10:00:00-04:00", timeZone: "America/New_York",
+      recurrence: ["RRULE:FREQ=WEEKLY"],
+    }, "owner@example.com", { uid: "zone-changing-series" }).data;
+    const moved = patchEventCalendar(source, {
+      start: "2026-10-27T14:00:00-07:00", end: "2026-10-27T15:00:00-07:00", timeZone: "America/Los_Angeles",
+    }, "owner@example.com", new Date("2026-10-01T00:00:00Z"), "this_instance", "2026-10-27T13:00:00Z");
+    const expanded = `BEGIN:VCALENDAR\r
+VERSION:2.0\r
+BEGIN:VEVENT\r
+UID:zone-changing-series\r
+DTSTART:20261027T140000Z\r
+DTEND:20261027T150000Z\r
+RECURRENCE-ID:20261027T130000Z\r
+SUMMARY:Weekly review\r
+END:VEVENT\r
+END:VCALENDAR`;
+    expect(parseExpandedIcsEvents(expanded, moved, context, "America/New_York")[0]).toMatchObject({
+      allDay: false, start: "2026-10-27T21:00:00.000Z", end: "2026-10-27T22:00:00.000Z",
+      timeZone: "America/Los_Angeles", startLocal: "2026-10-27T14:00:00-07:00", endLocal: "2026-10-27T15:00:00-07:00",
+      recurrenceId: "2026-10-27T13:00:00.000Z",
+    });
+  });
+
+  it.each([
+    {
+      title: "all-day range duration", allDay: true,
+      patch: { allDay: true, start: "2026-10-27", end: "2026-10-30" },
+      identity: "2026-10-27", laterIdentity: "20261110",
+      expandedStart: "20261110", expandedEnd: "20261113",
+      expected: { allDay: true, start: "2026-11-10", end: "2026-11-13", recurrenceId: "2026-11-10" }
+    },
+    {
+      title: "all-day to timed range across DST", allDay: true,
+      patch: { allDay: false, start: "2026-10-27T14:00:00-04:00", end: "2026-10-27T15:00:00-04:00", timeZone: "America/New_York" },
+      identity: "2026-10-27", laterIdentity: "20261110",
+      expandedStart: "20261110T140000Z", expandedEnd: "20261110T150000Z",
+      expected: { allDay: false, start: "2026-11-10T19:00:00.000Z", end: "2026-11-10T20:00:00.000Z", startLocal: "2026-11-10T14:00:00-05:00", recurrenceId: "2026-11-10" }
+    },
+    {
+      title: "timed to all-day range with a start shift", allDay: false,
+      patch: { allDay: true, start: "2026-10-28", end: "2026-10-29" },
+      identity: "2026-10-27T13:00:00Z", laterIdentity: "20261110T140000Z",
+      expandedStart: "20261111", expandedEnd: "20261112",
+      expected: { allDay: true, start: "2026-11-11", end: "2026-11-12", recurrenceId: "2026-11-10T14:00:00.000Z" }
+    },
+    {
+      title: "timed range with a different zone across DST", allDay: false,
+      patch: { allDay: false, start: "2026-10-27T14:00:00-07:00", end: "2026-10-27T15:00:00-07:00", timeZone: "America/Los_Angeles" },
+      identity: "2026-10-27T13:00:00Z", laterIdentity: "20261110T140000Z",
+      expandedStart: "20261110T140000Z", expandedEnd: "20261110T150000Z",
+      expected: { allDay: false, start: "2026-11-10T22:00:00.000Z", end: "2026-11-10T23:00:00.000Z", startLocal: "2026-11-10T14:00:00-08:00", timeZone: "America/Los_Angeles", recurrenceId: "2026-11-10T14:00:00.000Z" }
+    },
+  ])("preserves effective $title on later provider-selected occurrences", ({ allDay, patch, identity, laterIdentity, expandedStart, expandedEnd, expected }) => {
+    const source = buildEventCalendar({
+      title: "Weekly review", start: allDay ? "2026-10-20" : "2026-10-20T09:00:00-04:00", end: allDay ? "2026-10-21" : "2026-10-20T10:00:00-04:00", allDay,
+      ...(allDay ? {} : { timeZone: "America/New_York" }), recurrence: ["RRULE:FREQ=WEEKLY"],
+    }, "owner@example.com", { uid: "range-series" }).data;
+    const changed = patchEventCalendar(source, patch, "owner@example.com", new Date("2026-10-01T00:00:00Z"), "this_and_following", identity).replace("RANGE=THISANDFUTURE", "RANGE=thisandfuture");
+    const property = (name: string, value: string) => `${name}${value.length === 8 ? ";VALUE=DATE" : ""}:${value}`;
+    const expanded = ["BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT", "UID:range-series", property("DTSTART", expandedStart), property("DTEND", expandedEnd), property("RECURRENCE-ID", laterIdentity), "SUMMARY:Weekly review", "END:VEVENT", "END:VCALENDAR"].join("\r\n");
+    const event = parseExpandedIcsEvents(expanded, changed, context, "America/New_York")[0];
+    expect(event).toMatchObject(expected);
+    if (expected.allDay) expect(event).not.toHaveProperty("startLocal");
+  });
+
+  it("prefers exact exceptions and the latest applicable range", () => {
+    const source = buildEventCalendar({ title: "Weekly review", start: "2026-10-20", end: "2026-10-21", allDay: true, recurrence: ["RRULE:FREQ=WEEKLY"] }, "owner@example.com", { uid: "multiple-ranges" }).data;
+    const first = patchEventCalendar(source, { start: "2026-10-27", end: "2026-10-30" }, "owner@example.com", new Date("2026-10-01T00:00:00Z"), "this_and_following", "2026-10-27");
+    const latest = patchEventCalendar(first, { start: "2026-11-03", end: "2026-11-08" }, "owner@example.com", new Date("2026-10-01T00:00:00Z"), "this_and_following", "2026-11-03");
+    const exact = patchEventCalendar(latest, { start: "2026-11-12", end: "2026-11-14" }, "owner@example.com", new Date("2026-10-01T00:00:00Z"), "this_instance", "2026-11-10");
+    const expanded = ["BEGIN:VCALENDAR", "VERSION:2.0", ...["20261110", "20261117"].flatMap((id) => ["BEGIN:VEVENT", "UID:multiple-ranges", `DTSTART;VALUE=DATE:${id}`, `DTEND;VALUE=DATE:${id}`, `RECURRENCE-ID;VALUE=DATE:${id}`, "SUMMARY:Weekly review", "END:VEVENT"]), "END:VCALENDAR"].join("\r\n");
+    expect(parseExpandedIcsEvents(expanded, exact, context).map(({ start, end, recurrenceId }) => ({ start, end, recurrenceId }))).toEqual([
+      { start: "2026-11-12", end: "2026-11-14", recurrenceId: "2026-11-10" },
+      { start: "2026-11-17", end: "2026-11-22", recurrenceId: "2026-11-17" },
+    ]);
+  });
+
+  it.each([
+    { zone: "America/New_York", offset: "-04:00", recurrenceId: "2026-10-27T13:00:00.000Z", start: "2026-10-27T15:00:00.000Z" },
+    { zone: "America/Los_Angeles", offset: "-07:00", recurrenceId: "2026-10-27T16:00:00.000Z", start: "2026-10-27T18:00:00.000Z" },
+  ])("normalizes expanded recurrence identity before matching moved $zone exceptions", ({ zone, offset, recurrenceId, start }) => {
+    const source = buildEventCalendar({
+      title: "Weekly review", start: `2026-10-20T09:00:00${offset}`, end: `2026-10-20T10:00:00${offset}`, timeZone: zone, recurrence: ["RRULE:FREQ=WEEKLY"],
+    }, "owner@example.com", { uid: "identity-zone" }).data;
+    const moved = patchEventCalendar(source, {
+      start: `2026-10-27T11:00:00${offset}`, end: `2026-10-27T12:00:00${offset}`, timeZone: zone,
+    }, "owner@example.com", new Date("2026-10-01T00:00:00Z"), "this_instance", recurrenceId);
+    const root = ICAL.Component.fromString(moved);
+    root.removeAllSubcomponents("vtimezone");
+    for (const parameter of ["", `;TZID=${zone}`]) {
+      const expanded = ["BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT", "UID:identity-zone", "DTSTART:20261027T110000Z", "DTEND:20261027T120000Z", `RECURRENCE-ID${parameter}:20261027T090000`, "SUMMARY:Weekly review", "END:VEVENT", "END:VCALENDAR"].join("\r\n");
+      expect(parseExpandedIcsEvents(expanded, root.toString(), { ...context, defaultTimeZone: "America/New_York" }, zone)[0]).toMatchObject({
+        start, recurrenceId, timeZone: zone, startLocal: `2026-10-27T11:00:00${offset}`,
+      });
+    }
+  });
+
+  it("uses the resolved recurrence zone for normalized UTC range masters across DST", () => {
+    const source = buildEventCalendar({
+      title: "Weekly review", start: "2026-10-20T09:00:00-04:00", end: "2026-10-20T10:00:00-04:00", timeZone: "America/New_York", recurrence: ["RRULE:FREQ=WEEKLY"],
+    }, "owner@example.com", { uid: "normalized-range" }).data;
+    const changed = patchEventCalendar(source, {
+      start: "2026-10-27T14:00:00-07:00", end: "2026-10-27T15:00:00-07:00", timeZone: "America/Los_Angeles",
+    }, "owner@example.com", new Date("2026-10-01T00:00:00Z"), "this_and_following", "2026-10-27T13:00:00Z");
+    const normalized = changed
+      .replace("DTSTART;TZID=America/New_York:20261020T090000", "DTSTART:20261020T130000Z")
+      .replace("DTEND;TZID=America/New_York:20261020T100000", "DTEND:20261020T140000Z");
+    const expanded = ["BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT", "UID:normalized-range", "DTSTART:20261110T140000Z", "DTEND:20261110T150000Z", "RECURRENCE-ID:20261110T140000Z", "SUMMARY:Weekly review", "END:VEVENT", "END:VCALENDAR"].join("\r\n");
+    for (const data of [changed, normalized]) {
+      const zone = recurringEventTimeZoneId(data, "UTC");
+      expect(zone).toBe("America/New_York");
+      expect(parseExpandedIcsEvents(expanded, data, context, zone)[0]).toMatchObject({
+        start: "2026-11-10T22:00:00.000Z", end: "2026-11-10T23:00:00.000Z", startLocal: "2026-11-10T14:00:00-08:00", timeZone: "America/Los_Angeles",
+      });
+    }
   });
 
   it("reads, writes, clears, and otherwise preserves Apple structured locations", () => {
