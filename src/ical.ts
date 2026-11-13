@@ -328,6 +328,29 @@ function parseStructuredLocation(component: ICAL.Component): StructuredLocation 
   };
 }
 
+function parseCalendarWithTimeZones(data: string, context: ParseContext): ICAL.Component {
+  const root = ICAL.Component.fromString(data);
+  const components = root.getAllSubcomponents("vevent");
+  const master = components.find((component) => !component.hasProperty("recurrence-id"));
+  const recurrenceTimeZone = master ? eventTimeZone(master, context) : context.defaultTimeZone;
+  for (const component of components) {
+    for (const name of ["dtstart", "dtend", "recurrence-id"]) {
+      const property = component.getFirstProperty(name);
+      const value = property?.getFirstValue();
+      if (!(value instanceof ICAL.Time) || value.isDate || value.zone !== ICAL.Timezone.localTimezone) continue;
+      const declared = stringValue(property?.getFirstParameter("tzid"));
+      const fallback = name === "recurrence-id" ? recurrenceTimeZone : context.defaultTimeZone;
+      const timeZone = isIanaTimeZone(declared) ? declared : fallback;
+      const zone = isIanaTimeZone(timeZone) ? attachTimeZone(root, undefined, timeZone) : undefined;
+      if (!zone) continue;
+      const resolved = value.clone();
+      resolved.zone = zone;
+      property?.setValue(resolved);
+    }
+  }
+  return root;
+}
+
 function parseEventComponent(component: ICAL.Component, context: ParseContext): CalendarEvent {
   const event = new ICAL.Event(component);
   const start = formatTime(event.startDate);
@@ -375,7 +398,7 @@ function parseEventComponent(component: ICAL.Component, context: ParseContext): 
 }
 
 export function parseIcsEvents(data: string, context: ParseContext): CalendarEvent[] {
-  const root = ICAL.Component.fromString(data);
+  const root = parseCalendarWithTimeZones(data, context);
   return root.getAllSubcomponents("vevent").map((component) => parseEventComponent(component, context));
 }
 
@@ -389,16 +412,68 @@ function expandedOccurrenceEnd(event: CalendarEvent, start: string): string {
 }
 
 export function parseExpandedIcsEvents(data: string, sourceData: string, context: ParseContext, sourceTimeZone?: string): CalendarEvent[] {
-  const expanded = parseIcsEvents(data, context);
-  const source = parseIcsEvents(sourceData, context);
-  const master = source.find((event) => !event.recurrenceId);
-  const exceptions = new Map(source.flatMap((event) => event.recurrenceId ? [[event.recurrenceId, event] as const] : []));
-  return expanded.map((event) => {
+  const sourceContext = sourceTimeZone ? { ...context, defaultTimeZone: sourceTimeZone } : context;
+  const sourceRoot = parseCalendarWithTimeZones(sourceData, sourceContext);
+  const source = sourceRoot.getAllSubcomponents("vevent").map((component) => ({
+    event: parseEventComponent(component, sourceContext),
+    model: new ICAL.Event(component),
+  }));
+  const masterSource = source.find(({ event }) => !event.recurrenceId);
+  const master = masterSource?.event;
+  // iCloud can relabel even non-recurring wall times as UTC during expansion.
+  if (master && master.recurrence.length === 0) return [master];
+  const exceptions = new Map(source.flatMap(({ event }) => event.recurrenceId ? [[event.recurrenceId, event] as const] : []));
+  const ranges = source.flatMap((entry) => {
+    const recurrenceId = entry.event.recurrenceId;
+    const range = entry.model.component.getFirstProperty("recurrence-id")?.getFirstParameter("range");
+    return recurrenceId && stringValue(range)?.toUpperCase() === "THISANDFUTURE" ? [{ ...entry, recurrenceId }] : [];
+  }).sort((left, right) => right.recurrenceId.localeCompare(left.recurrenceId));
+  const root = parseCalendarWithTimeZones(data, sourceContext);
+  const recurrenceZone = attachTimeZone(sourceRoot, sourceData, sourceTimeZone);
+  return root.getAllSubcomponents("vevent").map((component) => {
+    // Canonical timing determines an occurrence's date or timestamp type before
+    // expanded values enter date arithmetic. Recurrence identity follows the series.
+    const occurrence = component.getFirstPropertyValue("recurrence-id")
+      ?? (master?.allDay ? component.getFirstPropertyValue("dtstart") : undefined);
+    const recurrenceId = occurrence instanceof ICAL.Time
+      ? master?.allDay ? occurrence.toString().slice(0, 10) : formatTime(occurrence)
+      : undefined;
+    let canonicalOccurrence = recurrenceId ? exceptions.get(recurrenceId) : undefined;
+    const range = recurrenceId ? ranges.find((candidate) => candidate.recurrenceId <= recurrenceId) : undefined;
+    if (!canonicalOccurrence && range && recurrenceId) {
+      const identityZone = recurrenceZone ?? masterSource?.model.startDate.zone ?? range.model.recurrenceId.zone;
+      const target = parseInputTime(recurrenceId, /^\d{4}-\d{2}-\d{2}$/.test(recurrenceId));
+      const offset = target.convertToZone(identityZone).subtractDate(range.model.recurrenceId.convertToZone(identityZone));
+      const start = range.model.startDate.clone();
+      start.addDuration(offset);
+      const end = start.clone();
+      end.addDuration(range.model.duration);
+      canonicalOccurrence = { ...range.event, start: formatTime(start), end: formatTime(end) };
+    }
+    if (!canonicalOccurrence && master?.allDay) {
+      if (!recurrenceId) throw new Error("Expanded all-day event has no occurrence date.");
+      canonicalOccurrence = { ...master, start: recurrenceId, end: expandedOccurrenceEnd(master, recurrenceId) };
+    }
+    if (canonicalOccurrence) {
+      component.removeAllProperties("dtstart");
+      component.removeAllProperties("dtend");
+      component.removeAllProperties("duration");
+      component.addPropertyWithValue("dtstart", parseInputTime(canonicalOccurrence.start, canonicalOccurrence.allDay));
+      component.addPropertyWithValue("dtend", parseInputTime(canonicalOccurrence.end, canonicalOccurrence.allDay));
+      if (recurrenceId && component.hasProperty("recurrence-id")) {
+        component.removeAllProperties("recurrence-id");
+        component.addPropertyWithValue("recurrence-id", parseInputTime(recurrenceId, /^\d{4}-\d{2}-\d{2}$/.test(recurrenceId)));
+      }
+      return parseEventComponent(component, {
+        ...context,
+        ...(canonicalOccurrence.timeZone ? { defaultTimeZone: canonicalOccurrence.timeZone } : {}),
+      });
+    }
+    const event = parseEventComponent(component, context);
     if (!event.recurrenceId) return event;
-    const exception = exceptions.get(event.recurrenceId);
-    const start = exception?.start ?? event.recurrenceId;
-    const end = exception?.end ?? expandedOccurrenceEnd(event, start);
-    const timeZone = sourceTimeZone ?? exception?.timeZone ?? master?.timeZone ?? event.timeZone;
+    const start = event.recurrenceId;
+    const end = expandedOccurrenceEnd(event, start);
+    const timeZone = sourceTimeZone ?? master?.timeZone ?? event.timeZone;
     return {
       ...event,
       start,
