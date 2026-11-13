@@ -15,6 +15,7 @@ class McpApiHandler extends WorkerEntrypoint<Env, AuthProps> {
     if (!this.ctx.props.scopes.includes("calendar:read")) {
       return Promise.resolve(new Response("Insufficient scope", { status: 403 }));
     }
+
     return createCalendarMcpHandler(this.env, this.ctx.props.scopes)(request, this.env, this.ctx);
   }
 }

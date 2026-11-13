@@ -4,8 +4,11 @@ import ICAL from "ical.js";
 import { tzlib_get_ical_block } from "timezones-ical-library";
 
 export type AttendanceStatus = "needs-action" | "accepted" | "declined" | "tentative" | "delegated";
+
 export type EventAvailability = "busy" | "free";
+
 export type EventStatus = "confirmed" | "tentative" | "cancelled";
+
 export type RecurrenceMutationScope = "entire_series" | "this_instance" | "this_and_following";
 
 export interface EventAttendee {
@@ -143,26 +146,29 @@ const roleToIcal = {
   "non-participant": "NON-PARTICIPANT",
 } as const;
 
-const statusFromIcal: Record<string, AttendanceStatus> = {
-  "NEEDS-ACTION": "needs-action",
-  ACCEPTED: "accepted",
-  DECLINED: "declined",
-  TENTATIVE: "tentative",
-  DELEGATED: "delegated",
-};
+const statusFromIcal = new Map<string, AttendanceStatus>([
+  ["NEEDS-ACTION", "needs-action"],
+  ["ACCEPTED", "accepted"],
+  ["DECLINED", "declined"],
+  ["TENTATIVE", "tentative"],
+  ["DELEGATED", "delegated"],
+]);
 
 function normalizeEmail(value: string): string {
   return value.replace(/^mailto:/i, "").trim().toLowerCase();
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- This boundary narrows untrusted third-party values before domain use.
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 export function isIanaTimeZone(value: string | undefined): value is string {
   if (!value) return false;
+
   try {
     new Intl.DateTimeFormat("en", { timeZone: value }).format();
+
     return value.includes("/") || value === "UTC";
   } catch {
     return false;
@@ -171,8 +177,10 @@ export function isIanaTimeZone(value: string | undefined): value is string {
 
 function timeZoneComponents(data: string | undefined): ICAL.Component[] {
   if (!data) return [];
+
   try {
     const root = ICAL.Component.fromString(data);
+
     return root.name === "vtimezone" ? [root] : root.getAllSubcomponents("vtimezone");
   } catch {
     return [];
@@ -185,25 +193,34 @@ export function calendarTimeZoneId(data: string | undefined): string | undefined
       stringValue(component.getFirstPropertyValue("tzid")),
       stringValue(component.getFirstPropertyValue("x-lic-location")),
     ];
+
     const match = candidates.find(isIanaTimeZone);
+
     if (match) return match;
   }
+
   return undefined;
 }
 
 export function recurringEventTimeZoneId(data: string | undefined, fallback: string): string | undefined {
   if (!data) return undefined;
+
   try {
     const root = ICAL.Component.fromString(data);
     const component = primaryEvent(root);
+
     if (!new ICAL.Event(component).isRecurring()) return undefined;
     const property = component.getFirstProperty("dtstart");
     const parameter = stringValue(property?.getFirstParameter("tzid"));
+
     if (isIanaTimeZone(parameter)) return parameter;
     const embeddedTimeZone = calendarTimeZoneId(data);
+
     if (embeddedTimeZone) return embeddedTimeZone;
     const value = property?.getFirstValue();
+
     if (value instanceof ICAL.Time && value.zone.tzid === "UTC") return "UTC";
+
     return isIanaTimeZone(fallback) ? fallback : undefined;
   } catch {
     return undefined;
@@ -214,13 +231,16 @@ function matchingTimeZoneComponent(data: string | undefined, timeZone: string): 
   return timeZoneComponents(data).find((component) => {
     const tzid = stringValue(component.getFirstPropertyValue("tzid"));
     const location = stringValue(component.getFirstPropertyValue("x-lic-location"));
+
     return tzid === timeZone || location === timeZone;
   });
 }
 
 function libraryTimeZoneComponent(timeZone: string): ICAL.Component | undefined {
   const result = tzlib_get_ical_block(timeZone);
+
   if (!Array.isArray(result) || !result[0]) return undefined;
+
   return timeZoneComponents(result[0])[0];
 }
 
@@ -236,9 +256,11 @@ function formatLocalTime(value: ICAL.Time, timeZone: string): string {
     hourCycle: "h23",
     timeZoneName: "longOffset",
   }).formatToParts(new Date(value.toUnixTime() * 1000));
+
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((candidate) => candidate.type === type)?.value ?? "";
   const offsetName = part("timeZoneName");
   const offset = offsetName === "GMT" ? "+00:00" : offsetName.replace(/^GMT/, "");
+
   return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}:${part("second")}${offset}`;
 }
 
@@ -246,28 +268,35 @@ function formatTime(value: ICAL.Time): string {
   if (value.isDate) {
     return `${String(value.year).padStart(4, "0")}-${String(value.month).padStart(2, "0")}-${String(value.day).padStart(2, "0")}`;
   }
+
   return new Date(value.toUnixTime() * 1000).toISOString();
 }
 
 function eventTimeZone(component: ICAL.Component, context: ParseContext): string | undefined {
   const property = component.getFirstProperty("dtstart");
   const propertyTimeZone = stringValue(property?.getFirstParameter("tzid"));
+
   if (isIanaTimeZone(propertyTimeZone)) return propertyTimeZone;
+
   return isIanaTimeZone(context.defaultTimeZone) ? context.defaultTimeZone : undefined;
 }
 
 function parseTimeProperty(component: ICAL.Component, name: string): string | undefined {
   const value = component.getFirstPropertyValue(name);
+
   return value instanceof ICAL.Time ? formatTime(value) : undefined;
 }
 
 function parseAttendee(property: ICAL.Property, selfEmail: string): EventAttendee | undefined {
   const rawEmail = stringValue(property.getFirstValue());
+
   if (!rawEmail) return undefined;
   const email = normalizeEmail(rawEmail);
+  // SAFETY: the lookup immediately falls back to required for keys absent from the iCalendar role table.
   const role = roleFromIcal[String(property.getFirstParameter("role") ?? "REQ-PARTICIPANT").toUpperCase() as keyof typeof roleFromIcal] ?? "required";
-  const status = statusFromIcal[String(property.getFirstParameter("partstat") ?? "NEEDS-ACTION").toUpperCase()] ?? "needs-action";
+  const status = statusFromIcal.get(String(property.getFirstParameter("partstat") ?? "NEEDS-ACTION").toUpperCase()) ?? "needs-action";
   const name = stringValue(property.getFirstParameter("cn"));
+
   return {
     email,
     role,
@@ -280,17 +309,21 @@ function parseAttendee(property: ICAL.Property, selfEmail: string): EventAttende
 function parseOrganizer(component: ICAL.Component): EventOrganizer | undefined {
   const property = component.getFirstProperty("organizer");
   const rawEmail = stringValue(property?.getFirstValue());
+
   if (!property || !rawEmail) return undefined;
   const name = stringValue(property.getFirstParameter("cn"));
+
   return { email: normalizeEmail(rawEmail), ...(name ? { name } : {}) };
 }
 
 function parseReminder(component: ICAL.Component): EventReminder | undefined {
   const trigger = component.getFirstPropertyValue("trigger");
+
   if (!(trigger instanceof ICAL.Duration) || !trigger.isNegative) return undefined;
   const actionValue = String(component.getFirstPropertyValue("action") ?? "DISPLAY").toLowerCase();
   const action = actionValue === "email" || actionValue === "audio" ? actionValue : "display";
   const description = stringValue(component.getFirstPropertyValue("description"));
+
   return {
     action,
     minutesBefore: Math.max(0, Math.round(Math.abs(trigger.toSeconds()) / 60)),
@@ -304,21 +337,26 @@ function parseRecurrence(component: ICAL.Component): string[] {
 
 function numberParameter(property: ICAL.Property, name: string): number | undefined {
   const value = Number(property.getFirstParameter(name));
+
   return Number.isFinite(value) ? value : undefined;
 }
 
 function parseStructuredLocation(component: ICAL.Component): StructuredLocation | undefined {
   const property = component.getFirstProperty("x-apple-structured-location");
   const value = stringValue(property?.getFirstValue());
+
   if (!property || !value) return undefined;
   const match = /^geo:([-+]?\d+(?:\.\d+)?),([-+]?\d+(?:\.\d+)?)/i.exec(value);
+
   if (!match?.[1] || !match[2]) return undefined;
   const latitude = Number(match[1]);
   const longitude = Number(match[2]);
+
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return undefined;
   const title = stringValue(property.getFirstParameter("x-title"));
   const address = stringValue(property.getFirstParameter("x-address"));
   const radius = numberParameter(property, "x-apple-radius");
+
   return {
     latitude,
     longitude,
@@ -333,21 +371,25 @@ function parseCalendarWithTimeZones(data: string, context: ParseContext): ICAL.C
   const components = root.getAllSubcomponents("vevent");
   const master = components.find((component) => !component.hasProperty("recurrence-id"));
   const recurrenceTimeZone = master ? eventTimeZone(master, context) : context.defaultTimeZone;
+
   for (const component of components) {
     for (const name of ["dtstart", "dtend", "recurrence-id"]) {
       const property = component.getFirstProperty(name);
       const value = property?.getFirstValue();
+
       if (!(value instanceof ICAL.Time) || value.isDate || value.zone !== ICAL.Timezone.localTimezone) continue;
       const declared = stringValue(property?.getFirstParameter("tzid"));
       const fallback = name === "recurrence-id" ? recurrenceTimeZone : context.defaultTimeZone;
       const timeZone = isIanaTimeZone(declared) ? declared : fallback;
       const zone = isIanaTimeZone(timeZone) ? attachTimeZone(root, undefined, timeZone) : undefined;
+
       if (!zone) continue;
       const resolved = value.clone();
       resolved.zone = zone;
       property?.setValue(resolved);
     }
   }
+
   return root;
 }
 
@@ -369,6 +411,7 @@ function parseEventComponent(component: ICAL.Component, context: ParseContext): 
   const transparency = String(component.getFirstPropertyValue("transp") ?? "OPAQUE").toUpperCase();
   const statusValue = String(component.getFirstPropertyValue("status") ?? "CONFIRMED").toLowerCase();
   const status: EventStatus = statusValue === "tentative" || statusValue === "cancelled" ? statusValue : "confirmed";
+
   return {
     id: context.eventId,
     calendarId: context.calendarId,
@@ -399,47 +442,61 @@ function parseEventComponent(component: ICAL.Component, context: ParseContext): 
 
 export function parseIcsEvents(data: string, context: ParseContext): CalendarEvent[] {
   const root = parseCalendarWithTimeZones(data, context);
+
   return root.getAllSubcomponents("vevent").map((component) => parseEventComponent(component, context));
 }
 
 function expandedOccurrenceEnd(event: CalendarEvent, start: string): string {
   if (event.allDay) {
     const duration = new Date(`${event.end}T00:00:00Z`).getTime() - new Date(`${event.start}T00:00:00Z`).getTime();
+
     return new Date(new Date(`${start}T00:00:00Z`).getTime() + duration).toISOString().slice(0, 10);
   }
+
   const duration = new Date(event.end).getTime() - new Date(event.start).getTime();
+
   return new Date(new Date(start).getTime() + duration).toISOString();
 }
 
 export function parseExpandedIcsEvents(data: string, sourceData: string, context: ParseContext, sourceTimeZone?: string): CalendarEvent[] {
   const sourceContext = sourceTimeZone ? { ...context, defaultTimeZone: sourceTimeZone } : context;
   const sourceRoot = parseCalendarWithTimeZones(sourceData, sourceContext);
+
   const source = sourceRoot.getAllSubcomponents("vevent").map((component) => ({
     event: parseEventComponent(component, sourceContext),
     model: new ICAL.Event(component),
   }));
+
   const masterSource = source.find(({ event }) => !event.recurrenceId);
   const master = masterSource?.event;
+
   // iCloud can relabel even non-recurring wall times as UTC during expansion.
   if (master && master.recurrence.length === 0) return [master];
   const exceptions = new Map(source.flatMap(({ event }) => event.recurrenceId ? [[event.recurrenceId, event] as const] : []));
+
   const ranges = source.flatMap((entry) => {
     const recurrenceId = entry.event.recurrenceId;
     const range = entry.model.component.getFirstProperty("recurrence-id")?.getFirstParameter("range");
+
     return recurrenceId && stringValue(range)?.toUpperCase() === "THISANDFUTURE" ? [{ ...entry, recurrenceId }] : [];
   }).sort((left, right) => right.recurrenceId.localeCompare(left.recurrenceId));
+
   const root = parseCalendarWithTimeZones(data, sourceContext);
   const recurrenceZone = attachTimeZone(sourceRoot, sourceData, sourceTimeZone);
+
   return root.getAllSubcomponents("vevent").map((component) => {
     // Canonical timing determines an occurrence's date or timestamp type before
     // expanded values enter date arithmetic. Recurrence identity follows the series.
     const occurrence = component.getFirstPropertyValue("recurrence-id")
       ?? (master?.allDay ? component.getFirstPropertyValue("dtstart") : undefined);
+
     const recurrenceId = occurrence instanceof ICAL.Time
       ? master?.allDay ? occurrence.toString().slice(0, 10) : formatTime(occurrence)
       : undefined;
+
     let canonicalOccurrence = recurrenceId ? exceptions.get(recurrenceId) : undefined;
     const range = recurrenceId ? ranges.find((candidate) => candidate.recurrenceId <= recurrenceId) : undefined;
+
     if (!canonicalOccurrence && range && recurrenceId) {
       const identityZone = recurrenceZone ?? masterSource?.model.startDate.zone ?? range.model.recurrenceId.zone;
       const target = parseInputTime(recurrenceId, /^\d{4}-\d{2}-\d{2}$/.test(recurrenceId));
@@ -450,30 +507,37 @@ export function parseExpandedIcsEvents(data: string, sourceData: string, context
       end.addDuration(range.model.duration);
       canonicalOccurrence = { ...range.event, start: formatTime(start), end: formatTime(end) };
     }
+
     if (!canonicalOccurrence && master?.allDay) {
       if (!recurrenceId) throw new Error("Expanded all-day event has no occurrence date.");
       canonicalOccurrence = { ...master, start: recurrenceId, end: expandedOccurrenceEnd(master, recurrenceId) };
     }
+
     if (canonicalOccurrence) {
       component.removeAllProperties("dtstart");
       component.removeAllProperties("dtend");
       component.removeAllProperties("duration");
       component.addPropertyWithValue("dtstart", parseInputTime(canonicalOccurrence.start, canonicalOccurrence.allDay));
       component.addPropertyWithValue("dtend", parseInputTime(canonicalOccurrence.end, canonicalOccurrence.allDay));
+
       if (recurrenceId && component.hasProperty("recurrence-id")) {
         component.removeAllProperties("recurrence-id");
         component.addPropertyWithValue("recurrence-id", parseInputTime(recurrenceId, /^\d{4}-\d{2}-\d{2}$/.test(recurrenceId)));
       }
+
       return parseEventComponent(component, {
         ...context,
         ...(canonicalOccurrence.timeZone ? { defaultTimeZone: canonicalOccurrence.timeZone } : {}),
       });
     }
+
     const event = parseEventComponent(component, context);
+
     if (!event.recurrenceId) return event;
     const start = event.recurrenceId;
     const end = expandedOccurrenceEnd(event, start);
     const timeZone = sourceTimeZone ?? master?.timeZone ?? event.timeZone;
+
     return {
       ...event,
       start,
@@ -490,32 +554,43 @@ export function parseExpandedIcsEvents(data: string, sourceData: string, context
 function parseInputTime(value: string, allDay: boolean, zone?: ICAL.Timezone): ICAL.Time {
   if (allDay) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error("All-day event times must use YYYY-MM-DD dates.");
+
     return ICAL.Time.fromDateString(value);
   }
+
   const date = new Date(value);
+
   if (!Number.isFinite(date.getTime()) || !/(?:Z|[+-]\d{2}:\d{2})$/.test(value)) {
     throw new Error("Timed events require RFC3339 timestamps with Z or an explicit UTC offset.");
   }
+
   const utc = ICAL.Time.fromJSDate(date, true);
+
   return zone ? utc.convertToZone(zone) : utc;
 }
 
-function validateTimeRange(start: string, end: string, allDay: boolean, zone?: ICAL.Timezone): { start: ICAL.Time; end: ICAL.Time } {
+function validateTimeRange(start: string, end: string, allDay: boolean, zone?: ICAL.Timezone) {
   const startTime = parseInputTime(start, allDay, zone);
   const endTime = parseInputTime(end, allDay, zone);
+
   if (endTime.toUnixTime() <= startTime.toUnixTime()) throw new Error("Event end must be after event start.");
+
   return { start: startTime, end: endTime };
 }
 
 function attachTimeZone(root: ICAL.Component, data: string | undefined, timeZone: string | undefined): ICAL.Timezone | undefined {
   if (!timeZone) return undefined;
+
   if (timeZone === "UTC") return ICAL.Timezone.utcTimezone;
   const existing = root.getTimeZoneByID(timeZone);
+
   if (existing) return existing;
   const source = matchingTimeZoneComponent(data, timeZone) ?? libraryTimeZoneComponent(timeZone);
+
   if (!source) return undefined;
   const component = new ICAL.Component(structuredClone(source.toJSON()));
   root.addSubcomponent(component);
+
   return root.getTimeZoneByID(String(component.getFirstPropertyValue("tzid")));
 }
 
@@ -529,6 +604,7 @@ function addAttendee(
   property.setParameter("role", roleToIcal[attendee.role ?? "required"]);
   property.setParameter("partstat", participation?.status ?? "NEEDS-ACTION");
   property.setParameter("rsvp", participation?.rsvp ?? "TRUE");
+
   if (attendee.name) property.setParameter("cn", attendee.name);
   component.addProperty(property);
 }
@@ -546,12 +622,14 @@ function addRecurrence(component: ICAL.Component, recurrence: string[]): void {
     if (!/^(?:RRULE|RDATE|EXDATE)(?:;[^:\r\n]+)?:[^\r\n]+$/i.test(line)) {
       throw new Error("Recurrence entries must be complete RRULE, RDATE, or EXDATE lines.");
     }
+
     component.addProperty(ICAL.Property.fromString(line));
   }
 }
 
 function setOptionalText(component: ICAL.Component, name: string, value: string | null | undefined): void {
   if (value === undefined) return;
+
   if (value === null || value === "") component.removeAllProperties(name);
   else component.updatePropertyWithValue(name, value);
 }
@@ -559,10 +637,14 @@ function setOptionalText(component: ICAL.Component, name: string, value: string 
 function setStructuredLocation(component: ICAL.Component, value: StructuredLocation | null | undefined): void {
   if (value === undefined) return;
   component.removeAllProperties("x-apple-structured-location");
+
   if (value === null) return;
   const parameters: Record<string, string> = {};
+
   if (value.address) parameters["x-address"] = value.address;
+
   if (value.radius !== undefined) parameters["x-apple-radius"] = String(value.radius);
+
   if (value.title) parameters["x-title"] = value.title;
   component.addProperty(new ICAL.Property([
     "x-apple-structured-location",
@@ -575,20 +657,27 @@ function setStructuredLocation(component: ICAL.Component, value: StructuredLocat
 function setAttendees(component: ICAL.Component, attendees: EventAttendeeInput[], selfEmail: string): void {
   const participationByEmail = new Map(component.getAllProperties("attendee").flatMap((property) => {
     const email = stringValue(property.getFirstValue());
+
     if (!email) return [];
+
     return [[normalizeEmail(email), {
       status: stringValue(property.getFirstParameter("partstat")),
       rsvp: stringValue(property.getFirstParameter("rsvp")),
     }] as const];
   }));
+
   component.removeAllProperties("attendee");
+
   if (attendees.length === 0) return;
+
   if (!component.hasProperty("organizer")) component.addPropertyWithValue("organizer", `mailto:${normalizeEmail(selfEmail)}`);
+
   for (const attendee of attendees) addAttendee(component, attendee, participationByEmail.get(normalizeEmail(attendee.email)));
 }
 
 function setReminders(component: ICAL.Component, reminders: EventReminderInput[], title: string): void {
   component.removeAllSubcomponents("valarm");
+
   for (const reminder of reminders) addReminder(component, reminder, title);
 }
 
@@ -598,7 +687,13 @@ function updateTimestamps(component: ICAL.Component, now: Date): void {
   component.updatePropertyWithValue("last-modified", timestamp);
 }
 
-export function buildEventCalendar(draft: EventDraft, selfEmail: string, options: BuildOptions = {}): { data: string; filename: string; uid: string } {
+export interface SerializedEventCalendar {
+  data: string;
+  filename: string;
+  uid: string;
+}
+
+export function buildEventCalendar(draft: EventDraft, selfEmail: string, options: BuildOptions = {}): SerializedEventCalendar {
   const allDay = draft.allDay ?? false;
   const now = options.now ?? new Date();
   const uid = options.uid ?? crypto.randomUUID();
@@ -608,9 +703,12 @@ export function buildEventCalendar(draft: EventDraft, selfEmail: string, options
   root.addPropertyWithValue("calscale", "GREGORIAN");
   const calendarTimeZone = calendarTimeZoneId(options.timeZoneData);
   const timeZone = allDay ? undefined : draft.timeZone ?? calendarTimeZone ?? options.defaultTimeZone;
+
   if (draft.timeZone && !isIanaTimeZone(draft.timeZone)) throw new Error("timeZone must be a valid IANA time zone such as America/New_York.");
   const zone = timeZone ? attachTimeZone(root, options.timeZoneData, timeZone) : undefined;
+
   if (draft.timeZone && !zone) throw new Error(`No VTIMEZONE definition is available for ${draft.timeZone}.`);
+
   if (draft.recurrence?.length && timeZone && !zone) throw new Error(`No VTIMEZONE definition is available for ${timeZone}.`);
   const range = validateTimeRange(draft.start, draft.end, allDay, zone);
   const component = new ICAL.Component("vevent");
@@ -630,54 +728,74 @@ export function buildEventCalendar(draft: EventDraft, selfEmail: string, options
   setStructuredLocation(component, draft.structuredLocation);
   setOptionalText(component, "description", draft.description);
   setOptionalText(component, "url", draft.url);
+
   if (draft.recurrence) addRecurrence(component, draft.recurrence);
+
   if (draft.attendees) setAttendees(component, draft.attendees, selfEmail);
+
   if (draft.reminders) setReminders(component, draft.reminders, draft.title);
+
   return { data: root.toString(), filename: `${uid}.ics`, uid };
 }
 
 function primaryEvent(root: ICAL.Component): ICAL.Component {
   const events = root.getAllSubcomponents("vevent");
   const component = events.find((candidate) => !candidate.hasProperty("recurrence-id")) ?? events[0];
+
   if (!component) throw new Error("Calendar object does not contain an event.");
+
   return component;
 }
 
 function patchEventComponent(root: ICAL.Component, component: ICAL.Component, patch: EventPatch, selfEmail: string, now: Date, options: PatchOptions): void {
   const event = new ICAL.Event(component);
+
   if (patch.title !== undefined) event.summary = patch.title;
+
   if (patch.timeZone !== undefined && (patch.start === undefined || patch.end === undefined)) {
     throw new Error("Changing timeZone requires both start and end.");
   }
+
   if (patch.start !== undefined || patch.end !== undefined || patch.allDay !== undefined) {
     if (patch.start === undefined || patch.end === undefined) throw new Error("Changing event time requires both start and end.");
     const allDay = patch.allDay ?? event.startDate.isDate;
+
     if (patch.timeZone && !isIanaTimeZone(patch.timeZone)) throw new Error("timeZone must be a valid IANA time zone such as America/New_York.");
     const existingTimeZone = isIanaTimeZone(event.startDate.zone.tzid) ? event.startDate.zone.tzid : undefined;
     const timeZone = allDay ? undefined : patch.timeZone ?? existingTimeZone ?? calendarTimeZoneId(options.timeZoneData) ?? options.defaultTimeZone;
     const zone = timeZone ? attachTimeZone(root, options.timeZoneData, timeZone) : undefined;
+
     if (patch.timeZone && !zone) throw new Error(`No VTIMEZONE definition is available for ${patch.timeZone}.`);
+
     if (event.isRecurring() && timeZone && !zone) throw new Error(`No VTIMEZONE definition is available for ${timeZone}.`);
     const range = validateTimeRange(patch.start, patch.end, allDay, zone);
     event.startDate = range.start;
     event.endDate = range.end;
   }
+
   const location = patch.location === undefined && patch.structuredLocation
     ? patch.structuredLocation.address ?? patch.structuredLocation.title
     : patch.location;
+
   setOptionalText(component, "location", location);
   setStructuredLocation(component, patch.structuredLocation);
   setOptionalText(component, "description", patch.description);
   setOptionalText(component, "url", patch.url);
+
   if (patch.availability !== undefined) component.updatePropertyWithValue("transp", patch.availability === "free" ? "TRANSPARENT" : "OPAQUE");
+
   if (patch.status !== undefined) component.updatePropertyWithValue("status", patch.status.toUpperCase());
+
   if (patch.recurrence !== undefined) {
     component.removeAllProperties("rrule");
     component.removeAllProperties("rdate");
     component.removeAllProperties("exdate");
+
     if (patch.recurrence) addRecurrence(component, patch.recurrence);
   }
+
   if (patch.attendees !== undefined) setAttendees(component, patch.attendees ?? [], selfEmail);
+
   if (patch.reminders !== undefined) setReminders(component, patch.reminders ?? [], event.summary || "Calendar event");
   event.sequence = (event.sequence || 0) + 1;
   updateTimestamps(component, now);
@@ -685,13 +803,16 @@ function patchEventComponent(root: ICAL.Component, component: ICAL.Component, pa
 
 function sameRecurrenceTime(component: ICAL.Component, target: ICAL.Time): boolean {
   const value = component.getFirstPropertyValue("recurrence-id");
+
   return value instanceof ICAL.Time && (value.isDate ? value.toString() === target.toString() : value.toUnixTime() === target.toUnixTime());
 }
 
-function requireRecurringMaster(root: ICAL.Component): { component: ICAL.Component; event: ICAL.Event } {
+function requireRecurringMaster(root: ICAL.Component) {
   const component = primaryEvent(root);
   const event = new ICAL.Event(component);
+
   if (!event.isRecurring()) throw new Error("Occurrence-scoped changes require a recurring event.");
+
   return { component, event };
 }
 
@@ -701,11 +822,13 @@ function occurrenceComponent(
   scope: Exclude<RecurrenceMutationScope, "entire_series">,
 ): ICAL.Component {
   const { component: master, event: masterEvent } = requireRecurringMaster(root);
+
   if (!recurrenceId) throw new Error("recurrenceId is required for an occurrence-scoped change.");
   const parsedStart = parseInputTime(recurrenceId, masterEvent.startDate.isDate);
   const originalStart = parsedStart.isDate ? parsedStart : parsedStart.convertToZone(masterEvent.startDate.zone);
   const existing = root.getAllSubcomponents("vevent").find((candidate) => sameRecurrenceTime(candidate, originalStart));
   const component = existing ?? new ICAL.Component(structuredClone(master.toJSON()));
+
   if (!existing) root.addSubcomponent(component);
 
   component.removeAllProperties("rrule");
@@ -718,8 +841,10 @@ function occurrenceComponent(
   end.addDuration(masterEvent.duration);
   event.endDate = end;
   const recurrenceProperty = component.getFirstProperty("recurrence-id");
+
   if (scope === "this_and_following") recurrenceProperty?.setParameter("range", "THISANDFUTURE");
   else recurrenceProperty?.removeParameter("range");
+
   return component;
 }
 
@@ -733,11 +858,14 @@ export function patchEventCalendar(
   options: PatchOptions = {},
 ): string {
   const root = ICAL.Component.fromString(data);
+
   if (scope !== "entire_series" && patch.recurrence !== undefined) {
     throw new Error("Recurrence rules can only be changed for the entire series.");
   }
+
   const component = scope === "entire_series" ? primaryEvent(root) : occurrenceComponent(root, recurrenceId ?? "", scope);
   patchEventComponent(root, component, patch, selfEmail, now, options);
+
   return root.toString();
 }
 
@@ -753,19 +881,24 @@ export function cancelEventOccurrence(
   component.updatePropertyWithValue("status", "CANCELLED");
   event.sequence = (event.sequence || 0) + 1;
   updateTimestamps(component, now);
+
   return root.toString();
 }
 
 export function respondToInvitation(data: string, selfEmail: string, status: Exclude<AttendanceStatus, "needs-action" | "delegated">, now = new Date()): string {
   const root = ICAL.Component.fromString(data);
   const component = primaryEvent(root);
+
   const self = component.getAllProperties("attendee").find((property) => {
     const value = stringValue(property.getFirstValue());
+
     return value ? normalizeEmail(value) === normalizeEmail(selfEmail) : false;
   });
+
   if (!self) throw new Error("The iCloud account is not an attendee on this event.");
   self.setParameter("partstat", status.toUpperCase());
   self.setParameter("rsvp", "FALSE");
   updateTimestamps(component, now);
+
   return root.toString();
 }

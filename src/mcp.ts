@@ -124,7 +124,7 @@ const recurrenceIdSchema = z.union([
   z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 ]).describe("Original occurrence start returned as recurrenceId by an event search.");
 
-const recurrenceMutationShape = {
+const recurrenceMutationFields = {
   updateScope: z.enum(["entire_series", "this_instance", "this_and_following"]).optional().describe("Required for recurring events. Choose which occurrences to change; ask the user when unclear."),
   recurrenceId: recurrenceIdSchema.optional(),
 };
@@ -133,6 +133,7 @@ function requireOccurrenceId<T extends { updateScope?: "entire_series" | "this_i
   if (value.updateScope && value.updateScope !== "entire_series" && !value.recurrenceId) {
     context.addIssue({ code: "custom", message: "recurrenceId is required unless updateScope is entire_series.", path: ["recurrenceId"] });
   }
+
   if ((!value.updateScope || value.updateScope === "entire_series") && value.recurrenceId) {
     context.addIssue({ code: "custom", message: "recurrenceId requires this_instance or this_and_following scope.", path: ["recurrenceId"] });
   }
@@ -140,7 +141,7 @@ function requireOccurrenceId<T extends { updateScope?: "entire_series" | "this_i
 
 const recurrenceSchema = z.array(z.string().min(1).max(500)).max(20);
 
-const eventDraftShape = {
+const eventDraftFields = {
   title: z.string().min(1).max(500),
   start: z.string().min(1).describe("RFC3339 timestamp with an offset, or YYYY-MM-DD when allDay is true."),
   end: z.string().min(1).describe("RFC3339 timestamp with an offset, or the exclusive YYYY-MM-DD end date when allDay is true."),
@@ -176,7 +177,9 @@ const eventPatchSchema = z.object({
 
 function credentials(env: ToolEnv) {
   if (!env.ICLOUD_USERNAME || !env.ICLOUD_APP_PASSWORD) throw new Error("iCloud credentials are not configured.");
+
   if (!isIanaTimeZone(env.CALENDAR_TIME_ZONE)) throw new Error("CALENDAR_TIME_ZONE must be a valid IANA time zone.");
+
   return { username: env.ICLOUD_USERNAME, password: env.ICLOUD_APP_PASSWORD, defaultTimeZone: env.CALENDAR_TIME_ZONE };
 }
 
@@ -187,10 +190,12 @@ function toolSuccess<T extends Record<string, unknown>>(output: T) {
   };
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Thrown values are untrusted and are narrowed before exposing a public error.
 function toolFailure(error: unknown) {
   if (error instanceof RecoverableMutationError) {
     return { isError: true, content: [{ type: "text" as const, text: JSON.stringify({ ...error.recovery, message: error.message }) }] };
   }
+
   return {
     isError: true,
     content: [{ type: "text" as const, text: publicError(error) }],
@@ -203,6 +208,7 @@ export function createCalendarServer(env: ToolEnv, scopes: readonly string[] = [
     { name: "icloud-calendar-mcp-server", version: "0.4.0" },
     { maxToolInputElements: 10_000 },
   );
+
   const granted = new Set(scopes);
 
   if (granted.has("calendar:read")) {
@@ -356,7 +362,7 @@ export function createCalendarServer(env: ToolEnv, scopes: readonly string[] = [
       {
         title: "Create an Apple calendar event",
         description: "Create an event. Timed start/end require explicit offsets; timeZone accepts an IANA zone, defaults to the target calendar, and keeps recurring wall-clock time stable across DST. All-day end dates are exclusive. Use structuredLocation with verified coordinates for Apple map previews; if only an address is known, use location and never guess coordinates. Alerts are delivered by Calendar according to the user's OS settings. Adding attendees may cause iCloud to send invitations. If a write outcome is unknown or readback fails, read the returned event ID before retrying; another create call can duplicate the event.",
-        inputSchema: z.object({ calendarId: z.string().min(1), ...eventDraftShape }).strict(),
+        inputSchema: z.object({ calendarId: z.string().min(1), ...eventDraftFields }).strict(),
         outputSchema: z.object({ event: eventSchema }),
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       },
@@ -374,7 +380,7 @@ export function createCalendarServer(env: ToolEnv, scopes: readonly string[] = [
       {
         title: "Update an Apple calendar event",
         description: "Update one occurrence, this and later occurrences, or an entire event series after reading it. Requires the latest ETag and preserves unmodeled iCalendar fields, including attachments and unsupported alarms. Timed start/end remain canonical instants while an IANA timeZone controls wall-clock and DST semantics. Use structuredLocation only with verified coordinates; if only an address is known, use location. Attendees, display alerts, and recurrence are complete replacement lists. Recurring events require explicit updateScope. If a write outcome is unknown or readback fails, read the returned event ID before retrying.",
-        inputSchema: z.object({ ...mutationSelectorSchema, ...recurrenceMutationShape, patch: eventPatchSchema }).strict().superRefine(requireOccurrenceId),
+        inputSchema: z.object({ ...mutationSelectorSchema, ...recurrenceMutationFields, patch: eventPatchSchema }).strict().superRefine(requireOccurrenceId),
         outputSchema: z.object({ event: eventSchema }),
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       },
@@ -392,7 +398,7 @@ export function createCalendarServer(env: ToolEnv, scopes: readonly string[] = [
       {
         title: "Delete an Apple calendar event",
         description: "Delete one occurrence, this and later occurrences, or an entire event series after reading it. Requires the latest ETag and may send cancellation notices for invited events. Recurring events require explicit updateScope. If a write outcome is unknown, read the returned event ID before retrying.",
-        inputSchema: z.object({ ...mutationSelectorSchema, ...recurrenceMutationShape }).strict().superRefine(requireOccurrenceId),
+        inputSchema: z.object({ ...mutationSelectorSchema, ...recurrenceMutationFields }).strict().superRefine(requireOccurrenceId),
         outputSchema: z.object({
           deleted: z.literal(true),
           eventId: z.string(),
@@ -434,11 +440,14 @@ export function createCalendarServer(env: ToolEnv, scopes: readonly string[] = [
 
 export function createCalendarMcpHandler(env: ToolEnv, scopes: readonly string[] = ["calendar:read"]) {
   const configuredHostname = normalizeConfiguredHostname(env.MCP_HOSTNAME);
+
   const options = {
     route: "/mcp",
     legacy: "stateless",
   } as const;
+
   const defaultHandler = createMcpHandler(() => createCalendarServer(env, scopes), options);
+
   if (!configuredHostname) return defaultHandler;
 
   const customDomainHandler = createMcpHandler(() => createCalendarServer(env, scopes), {
@@ -450,6 +459,7 @@ export function createCalendarMcpHandler(env: ToolEnv, scopes: readonly string[]
   return (request: Request, handlerEnv: Env, context: ExecutionContext) => {
     const requestHostname = new URL(request.url).hostname.toLowerCase();
     const handler = requestHostname === configuredHostname ? customDomainHandler : defaultHandler;
+
     return handler(request, handlerEnv, context);
   };
 }

@@ -207,10 +207,13 @@ Use Node.js 22.23+, 24.22+, or 26.12+ and Bun. The project pins the Cloudflare C
 ```bash
 bun install
 cp .dev.vars.example .dev.vars
+bun run lint
 bun run test
 bun run typecheck
 bun run cloudflare:check
 ```
+
+Oxlint and vendored [anti-slop](https://github.com/dmmulroy/anti-slop) rules run with `bun run lint` and in CI. [Rule provenance and adaptations](tools/oxlint/anti-slop/UPSTREAM.md) explain the boundary and formatting exceptions.
 
 Keep `.dev.vars` local. Run `bun run cloudflare:dev` for local development.
 

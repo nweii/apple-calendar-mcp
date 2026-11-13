@@ -1,5 +1,6 @@
 // Verifies the scoped tool catalog and advertised schemas through an in-memory MCP connection.
 
+import { createExecutionContext } from "cloudflare:test";
 import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { describe, expect, it } from "vitest";
@@ -7,13 +8,16 @@ import { createCalendarMcpHandler, createCalendarServer } from "../src/mcp";
 
 async function listTools(scopes: string[]) {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
   const server = createCalendarServer({
     ICLOUD_USERNAME: "owner@example.com",
     ICLOUD_APP_PASSWORD: "test-password",
     CALENDAR_TIME_ZONE: "America/New_York",
   }, scopes);
+
   const client = new Client({ name: "tool-catalog-test", version: "1.0.0" });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
   try {
     return (await client.listTools()).tools;
   } finally {
@@ -24,22 +28,21 @@ async function listTools(scopes: string[]) {
 
 describe("MCP tool scopes", () => {
   it("adds one configured custom domain without losing the safe workers.dev default", async () => {
+    // SAFETY: this host-validation test stops before accessing the omitted OAuth KV binding.
     const env = {
       ICLOUD_USERNAME: "owner@example.com",
       ICLOUD_APP_PASSWORD: "test-password",
       CALENDAR_TIME_ZONE: "UTC",
       MCP_HOSTNAME: "calendar.example.com",
     } as Env;
-    const context = {
-      waitUntil() {},
-      passThroughOnException() {},
-      props: {},
-    } as unknown as ExecutionContext;
+
+    const context = createExecutionContext();
     const handler = createCalendarMcpHandler(env);
 
     async function status(url: string) {
       const hostname = new URL(url).hostname;
       const request = new Request(url, { method: "GET", headers: { Host: hostname, Origin: `https://${hostname}` } });
+
       return (await handler(request, env, context)).status;
     }
 
