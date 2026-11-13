@@ -116,7 +116,9 @@ describe("explicit recurring scope", () => {
 describe("pagination and MCP serialization", () => {
   it("returns every tied-time event over list pages in stable order", async () => {
     const events = ["z", "a", "m"].map((name) => ({ ...object(), url: `${calendarUrl}${name}.ics` }));
-    dav.fetchCalendarObjects.mockResolvedValueOnce(events).mockResolvedValueOnce([...events].reverse());
+    dav.fetchCalendarObjects
+      .mockResolvedValueOnce(events).mockResolvedValueOnce(events)
+      .mockResolvedValueOnce([...events].reverse()).mockResolvedValueOnce(events);
     const first = await listEvents(credentials, calendarId, draft.start, "2026-11-14T00:00:00Z", 2);
     const last = await listEvents(credentials, calendarId, draft.start, "2026-11-14T00:00:00Z", 2, first.nextOffset);
     expect(first).toMatchObject({ total: 3, offset: 0, hasMore: true, nextOffset: 2 });
