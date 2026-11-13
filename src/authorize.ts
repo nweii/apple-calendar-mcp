@@ -33,22 +33,30 @@ const pageStyles = `
 export function authorizationGuard(env: Pick<AuthorizeEnv, "EXTERNAL_AUTHORIZATION" | "APPROVAL_PASSWORD">): AuthorizationGuard {
   const external = env.EXTERNAL_AUTHORIZATION === "true";
   const password = Boolean(env.APPROVAL_PASSWORD);
+
   if (external && password) return "external-and-password";
+
   if (password) return "password";
+
   if (external) return "external";
+
   return "disabled";
 }
 
 export async function secretsEqual(candidate: string, expected: string): Promise<boolean> {
   const encoder = new TextEncoder();
+
   const [candidateDigest, expectedDigest] = await Promise.all([
     crypto.subtle.digest("SHA-256", encoder.encode(candidate)),
     crypto.subtle.digest("SHA-256", encoder.encode(expected)),
   ]);
+
   const candidateBytes = new Uint8Array(candidateDigest);
   const expectedBytes = new Uint8Array(expectedDigest);
   let difference = 0;
+
   for (let index = 0; index < candidateBytes.length; index += 1) difference |= candidateBytes[index]! ^ expectedBytes[index]!;
+
   return difference === 0;
 }
 
@@ -60,6 +68,7 @@ function page(options: PageOptions): Response {
   const nonce = crypto.randomUUID();
   const script = options.script ? `<script nonce="${nonce}">${options.script}</script>` : "";
   const formAction = ["'self'", ...(options.formActionOrigins ?? [])].join(" ");
+
   return new Response(
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light dark"><meta name="referrer" content="no-referrer"><title>${escape(options.title)}</title><style>${pageStyles}</style></head><body><div class="shell"><div class="brand"><span class="brand-mark" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg></span>iCloud Calendar MCP</div>${options.content}</div>${script}</body></html>`,
     {
@@ -85,15 +94,20 @@ export function approvalPage(options: {
   status?: number;
 }): Response {
   const clientName = escape(options.clientName);
+
   const password = options.passwordRequired
     ? `<div class="field"><label for="password">Approval password</label><input id="password" name="password" type="password" autocomplete="current-password" required${options.error ? " autofocus" : ""}></div>`
     : "";
+
   const error = options.error ? `<p class="error" role="alert">${escape(options.error)}</p>` : "";
   const permissionTitle = options.writeRequested ? "Read and edit calendars and events" : "Read calendars and events";
+
   const permissionCopy = options.writeRequested
     ? `${clientName} can create, change, delete, and respond to events. Invitations and responses may notify other people.`
     : `${clientName} cannot create, edit, or delete anything.`;
+
   const content = `<main class="card"><h1 class="title">Share iCloud Calendar with ${clientName}?</h1><p class="lede">Approve this connection to your iCloud calendars.</p><div class="permission"><div class="permission-title"><span class="permission-icon" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25"><path d="m5 12 4 4L19 6"/></svg></span>${permissionTitle}</div><p class="permission-copy">${permissionCopy}</p></div>${error}<form method="post" action="${escape(options.action)}">${password}<div class="actions"><button class="button button--primary" type="submit" name="decision" value="allow"><span class="button-label">Allow and return</span><span class="button-progress" aria-live="polite"><span class="spinner" aria-hidden="true"></span>Returning…</span></button><button class="button button--secondary" type="submit" name="decision" value="deny" formnovalidate>Cancel</button></div></form><p class="fine-print">You can revoke access later from ${clientName}.</p></main>`;
+
   return page({
     content,
     formActionOrigins: options.redirectOrigin ? [options.redirectOrigin] : [],
@@ -110,6 +124,7 @@ export function supportedAuthorizationScopes(requested: readonly string[]): stri
 function messagePage(title: string, message: string, status: number, code?: string): Response {
   const codeLine = code ? `<p class="message-code">${escape(code)}</p>` : "";
   const content = `<main class="card"><div class="message-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 17h.01"/></svg></div><h1 class="title">${escape(title)}</h1><p class="lede">${escape(message)}</p>${codeLine}<p class="close-note">Close this window and restart the connection from your MCP client.</p></main>`;
+
   return page({ content, status, title });
 }
 
@@ -118,8 +133,11 @@ function authorizationError(error: AuthorizationError): Response {
   const redirect = new URL(error.redirectUri);
   redirect.searchParams.set("error", error.code);
   redirect.searchParams.set("error_description", error.description);
+
   if (error.state) redirect.searchParams.set("state", error.state);
+
   if (error.issuer) redirect.searchParams.set("iss", error.issuer);
+
   return Response.redirect(redirect, 303);
 }
 
@@ -127,8 +145,11 @@ function deniedAuthorization(oauthRequest: AuthRequest): Response {
   const redirect = new URL(oauthRequest.redirectUri);
   redirect.searchParams.set("error", "access_denied");
   redirect.searchParams.set("error_description", "The calendar owner denied the request.");
+
   if (oauthRequest.state) redirect.searchParams.set("state", oauthRequest.state);
+
   if (oauthRequest.issuer) redirect.searchParams.set("iss", oauthRequest.issuer);
+
   return Response.redirect(redirect, 303);
 }
 
@@ -136,13 +157,17 @@ export const defaultHandler: ExportedHandler<AuthorizeEnv> = {
   async fetch(request, env) {
     const url = new URL(request.url);
     const guard = authorizationGuard(env);
+
     if (url.pathname === "/") return Response.json({ service: "iCloud Calendar MCP", mcp: "/mcp", authorization: guard });
+
     if (url.pathname !== "/authorize") return new Response("Not found", { status: 404 });
+
     if (guard === "disabled") {
       return messagePage("Authorization is unavailable", "This server needs an approval password or a verified external authorization guard.", 503, "authorization_guard_missing");
     }
 
     let oauthRequest: AuthRequest;
+
     try {
       oauthRequest = await env.OAUTH_PROVIDER.parseAuthRequest(request);
     } catch (error) {
@@ -151,8 +176,10 @@ export const defaultHandler: ExportedHandler<AuthorizeEnv> = {
     }
 
     const client = await env.OAUTH_PROVIDER.lookupClient(oauthRequest.clientId);
+
     if (!client) return messagePage("Unknown client", "The requesting application is not registered with this calendar server.", 400, "unknown_oauth_client");
     const grantedScopes = supportedAuthorizationScopes(oauthRequest.scope);
+
     if (!grantedScopes.includes("calendar:read")) return messagePage("Permission unavailable", "This connection did not request the required calendar permission.", 400, "calendar_read_required");
 
     const clientName = client.clientName ?? "Unknown client";
@@ -160,12 +187,17 @@ export const defaultHandler: ExportedHandler<AuthorizeEnv> = {
     const redirectOrigin = new URL(oauthRequest.redirectUri).origin;
     const passwordRequired = Boolean(env.APPROVAL_PASSWORD);
     const writeRequested = grantedScopes.includes("calendar:write");
+
     if (request.method === "GET") return approvalPage({ action, clientName, redirectOrigin, passwordRequired, writeRequested });
+
     if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { allow: "GET, POST" } });
 
     const form = await request.formData();
+
     if (form.get("decision") === "deny") return deniedAuthorization(oauthRequest);
+
     if (form.get("decision") !== "allow") return messagePage("Invalid response", "The approval form did not include a valid decision.", 400, "invalid_approval_decision");
+
     if (env.APPROVAL_PASSWORD && !(await secretsEqual(String(form.get("password") ?? ""), env.APPROVAL_PASSWORD))) {
       return approvalPage({ action, clientName, redirectOrigin, passwordRequired, writeRequested, error: "That approval password is incorrect.", status: 401 });
     }
@@ -177,8 +209,10 @@ export const defaultHandler: ExportedHandler<AuthorizeEnv> = {
       scope: grantedScopes,
       props: { userId: "calendar-owner", scopes: grantedScopes },
     });
+
     const redirect = new URL(redirectTo);
     console.info("oauth_authorization_approved", { clientName, redirectHost: redirect.host, redirectPath: redirect.pathname });
+
     return Response.redirect(redirect, 303);
   },
 };

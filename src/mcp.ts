@@ -133,6 +133,7 @@ function requireOccurrenceId<T extends { updateScope?: "entire_series" | "this_i
   if (value.updateScope && value.updateScope !== "entire_series" && !value.recurrenceId) {
     context.addIssue({ code: "custom", message: "recurrenceId is required unless updateScope is entire_series.", path: ["recurrenceId"] });
   }
+
   if ((!value.updateScope || value.updateScope === "entire_series") && value.recurrenceId) {
     context.addIssue({ code: "custom", message: "recurrenceId requires this_instance or this_and_following scope.", path: ["recurrenceId"] });
   }
@@ -176,7 +177,9 @@ const eventPatchSchema = z.object({
 
 function credentials(env: ToolEnv) {
   if (!env.ICLOUD_USERNAME || !env.ICLOUD_APP_PASSWORD) throw new Error("iCloud credentials are not configured.");
+
   if (!isIanaTimeZone(env.CALENDAR_TIME_ZONE)) throw new Error("CALENDAR_TIME_ZONE must be a valid IANA time zone.");
+
   return { username: env.ICLOUD_USERNAME, password: env.ICLOUD_APP_PASSWORD, defaultTimeZone: env.CALENDAR_TIME_ZONE };
 }
 
@@ -192,6 +195,7 @@ function toolFailure(error: unknown) {
   if (error instanceof RecoverableMutationError) {
     return { isError: true, content: [{ type: "text" as const, text: JSON.stringify({ ...error.recovery, message: error.message }) }] };
   }
+
   return {
     isError: true,
     content: [{ type: "text" as const, text: publicError(error) }],
@@ -204,6 +208,7 @@ export function createCalendarServer(env: ToolEnv, scopes: readonly string[] = [
     { name: "icloud-calendar-mcp-server", version: "0.4.0" },
     { maxToolInputElements: 10_000 },
   );
+
   const granted = new Set(scopes);
 
   if (granted.has("calendar:read")) {
@@ -435,11 +440,14 @@ export function createCalendarServer(env: ToolEnv, scopes: readonly string[] = [
 
 export function createCalendarMcpHandler(env: ToolEnv, scopes: readonly string[] = ["calendar:read"]) {
   const configuredHostname = normalizeConfiguredHostname(env.MCP_HOSTNAME);
+
   const options = {
     route: "/mcp",
     legacy: "stateless",
   } as const;
+
   const defaultHandler = createMcpHandler(() => createCalendarServer(env, scopes), options);
+
   if (!configuredHostname) return defaultHandler;
 
   const customDomainHandler = createMcpHandler(() => createCalendarServer(env, scopes), {
@@ -451,6 +459,7 @@ export function createCalendarMcpHandler(env: ToolEnv, scopes: readonly string[]
   return (request: Request, handlerEnv: Env, context: ExecutionContext) => {
     const requestHostname = new URL(request.url).hostname.toLowerCase();
     const handler = requestHostname === configuredHostname ? customDomainHandler : defaultHandler;
+
     return handler(request, handlerEnv, context);
   };
 }

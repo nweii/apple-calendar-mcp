@@ -11,16 +11,25 @@ const dav = vi.hoisted(() => ({
   fetchCalendars: vi.fn(), fetchCalendarObjects: vi.fn(), createCalendarObject: vi.fn(),
   updateCalendarObject: vi.fn(), deleteCalendarObject: vi.fn(),
 }));
+
 vi.mock("tsdav", () => ({ createDAVClient: vi.fn(async () => dav) }));
+
 const credentials = { username: "owner@example.com", password: "test-password", defaultTimeZone: "UTC" };
+
 const calendarUrl = "https://caldav.icloud.com/calendars/test/";
+
 const calendarId = encodeDavId(calendarUrl);
+
 const eventId = encodeDavId(`${calendarUrl}event.ics`);
+
 const selector = { calendarId, eventId, etag: '"1"' };
+
 const draft = { title: "Lunch", start: "2026-11-13T12:00:00Z", end: "2026-11-13T13:00:00Z" };
+
 function eventData(extra = "") {
   return `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:test\r\nSUMMARY:Lunch\r\nDTSTART:20261113T120000Z\r\nDTEND:20261113T130000Z\r\nATTENDEE;PARTSTAT=NEEDS-ACTION:mailto:owner@example.com\r\n${extra}END:VEVENT\r\nEND:VCALENDAR\r\n`;
 }
+
 function object(extra = "") { return { url: `${calendarUrl}event.ics`, etag: '"1"', data: eventData(extra) }; }
 
 beforeEach(() => {
@@ -49,9 +58,11 @@ describe("mutation recovery", () => {
   it.each(["create", "update", "respond"] as const)("reports acknowledged %s writes when readback fails", async (operation) => {
     if (operation !== "create") dav.fetchCalendarObjects.mockResolvedValueOnce([object()]);
     dav.fetchCalendarObjects.mockRejectedValue(new Error("read failed"));
+
     const call = operation === "create" ? createEvent(credentials, calendarId, draft)
       : operation === "update" ? updateEvent(credentials, selector, { title: "Changed" })
       : respondToInvitation(credentials, selector, "accepted");
+
     await expect(call).rejects.toMatchObject({ recovery: { operation, code: "write_succeeded_readback_failed", retrySafe: false } });
     expect(operation === "create" ? dav.createCalendarObject : dav.updateCalendarObject).toHaveBeenCalledTimes(1);
   });
@@ -132,6 +143,7 @@ describe("pagination and MCP serialization", () => {
     const server = createCalendarServer({ ICLOUD_USERNAME: credentials.username, ICLOUD_APP_PASSWORD: credentials.password, CALENDAR_TIME_ZONE: "UTC" }, ["calendar:read", "calendar:write"]);
     const client = new Client({ name: "recovery-test", version: "1" });
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
     try {
       dav.createCalendarObject.mockRejectedValue(new Error("test-password private error"));
       const response = await client.callTool({ name: "calendar_create_event", arguments: { calendarId, ...draft } });
@@ -139,11 +151,13 @@ describe("pagination and MCP serialization", () => {
       expect(response.structuredContent).toBeUndefined();
       expect(response.content).toEqual([expect.objectContaining({ type: "text", text: expect.stringContaining('"code":"write_outcome_unknown"') })]);
       expect(JSON.stringify(response)).not.toContain("test-password");
+
       for (const name of ["calendar_list_events", "calendar_search_events"]) {
         const page = await client.callTool({ name, arguments: { ...(name === "calendar_list_events" ? { calendarId } : { calendarIds: [calendarId] }), start: draft.start, end: "2026-11-14T00:00:00Z", offset: 10_001 } });
         expect(page.isError).not.toBe(true);
         expect(page.structuredContent).toMatchObject({ events: [], total: 1, offset: 10_001, hasMore: false });
       }
+
       const invalid = await client.callTool({ name: "calendar_delete_event", arguments: { ...selector, recurrenceId: draft.start } });
       expect(invalid.isError).toBe(true);
       expect(dav.deleteCalendarObject).not.toHaveBeenCalled();

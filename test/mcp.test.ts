@@ -8,13 +8,16 @@ import { createCalendarMcpHandler, createCalendarServer } from "../src/mcp";
 
 async function listTools(scopes: string[]) {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
   const server = createCalendarServer({
     ICLOUD_USERNAME: "owner@example.com",
     ICLOUD_APP_PASSWORD: "test-password",
     CALENDAR_TIME_ZONE: "America/New_York",
   }, scopes);
+
   const client = new Client({ name: "tool-catalog-test", version: "1.0.0" });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
   try {
     return (await client.listTools()).tools;
   } finally {
@@ -39,6 +42,7 @@ describe("MCP tool scopes", () => {
     async function status(url: string) {
       const hostname = new URL(url).hostname;
       const request = new Request(url, { method: "GET", headers: { Host: hostname, Origin: `https://${hostname}` } });
+
       return (await handler(request, env, context)).status;
     }
 

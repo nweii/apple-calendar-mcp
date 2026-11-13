@@ -115,23 +115,30 @@ function createClient(credentials: Credentials, baseFetch: typeof fetch = fetch)
 async function getCalendars(credentials: Credentials, baseFetch: typeof fetch = fetch) {
   const client = await createClient(credentials, baseFetch);
   const calendars = await client.fetchCalendars();
+
   for (const calendar of calendars) assertAppleCalDavUrl(calendar.url);
+
   return { client, calendars };
 }
 
 function requireDiscoveredCalendar(calendars: DAVCalendar[], calendarId: string): DAVCalendar {
   const requestedUrl = decodeDavId(calendarId);
   const calendar = calendars.find((candidate) => new URL(candidate.url).href === requestedUrl);
+
   if (!calendar) throw new Error("Calendar identifier is no longer available.");
+
   if (calendar.components && !calendar.components.includes("VEVENT")) throw new Error("This calendar does not contain events.");
+
   return calendar;
 }
 
 function requireEventUrl(calendar: DAVCalendar, eventId: string): string {
   const requestedUrl = decodeDavId(eventId);
+
   if (!requestedUrl.startsWith(new URL(calendar.url).href) || !new URL(requestedUrl).pathname.endsWith(".ics")) {
     throw new Error("Event does not belong to this calendar.");
   }
+
   return requestedUrl;
 }
 
@@ -142,7 +149,9 @@ function requireTimeRange(start: string, end: string) {
   if (!Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime()) || startDate >= endDate) {
     throw new Error("start and end must be valid ISO timestamps with start before end.");
   }
+
   if (endDate.getTime() - startDate.getTime() > MAX_QUERY_RANGE_MS) throw new Error("Event queries are limited to 366 days.");
+
   return { start: startDate.toISOString(), end: endDate.toISOString() };
 }
 
@@ -152,6 +161,7 @@ function calendarTimeZone(calendar: DAVCalendar, fallback: string): string {
 
 function eventFromObject(object: DAVCalendarObject, calendarId: string, username: string, defaultTimeZone: string): CalendarEvent[] {
   if (typeof object.data !== "string") return [];
+
   return parseIcsEvents(object.data, {
     calendarId,
     eventId: encodeDavId(object.url),
@@ -170,6 +180,7 @@ async function fetchEventsForCalendar(
   range: { start: string; end: string },
 ): Promise<CalendarEvent[]> {
   const calendarUrl = new URL(calendar.url).href;
+
   const objects = await client.fetchCalendarObjects({
     calendar,
     timeRange: range,
@@ -178,16 +189,20 @@ async function fetchEventsForCalendar(
     urlFilter: (url) => {
       try {
         const eventUrl = assertAppleCalDavUrl(url);
+
         return eventUrl.href.startsWith(calendarUrl) && eventUrl.pathname.endsWith(".ics");
       } catch {
         return false;
       }
     },
   });
+
   const defaultTimeZone = calendarTimeZone(calendar, fallbackTimeZone);
+
   const objectUrls = objects.flatMap((object) => typeof object.data === "string"
     ? [new URL(object.url).href]
     : []);
+
   const originals = objectUrls.length > 0
     ? await client.fetchCalendarObjects({
       calendar,
@@ -196,13 +211,17 @@ async function fetchEventsForCalendar(
       urlFilter: (url) => objectUrls.includes(new URL(url).href),
     })
     : [];
+
   const originalsByPath = new Map(originals.flatMap((object) => typeof object.data === "string"
     ? [[new URL(object.url).pathname, object.data] as const]
     : []));
+
   return objects.flatMap((object) => {
     const originalData = originalsByPath.get(new URL(object.url).pathname);
     const recurringTimeZone = recurringEventTimeZoneId(originalData, defaultTimeZone);
+
     if (typeof object.data !== "string") return [];
+
     const context = {
       calendarId,
       eventId: encodeDavId(object.url),
@@ -210,7 +229,9 @@ async function fetchEventsForCalendar(
       defaultTimeZone,
       ...(object.etag ? { etag: object.etag } : {}),
     };
+
     if (!originalData) throw new Error("Apple did not return the canonical event for an expanded calendar result.");
+
     return parseExpandedIcsEvents(object.data, originalData, context, recurringTimeZone);
   });
 }
@@ -227,41 +248,53 @@ async function loadEventObject(
   const { client, calendars } = await getCalendars(credentials, baseFetch);
   const calendar = requireDiscoveredCalendar(calendars, selector.calendarId);
   const requestedUrl = requireEventUrl(calendar, selector.eventId);
+
   const objects = await client.fetchCalendarObjects({
     calendar,
     objectUrls: [requestedUrl],
     useMultiGet: true,
     urlFilter: (url) => new URL(url).href === requestedUrl,
   });
+
   const object = objects.find((candidate) => new URL(candidate.url).href === requestedUrl);
+
   if (!object || typeof object.data !== "string") throw new Error("Event was not found.");
+
   return { calendar, client, object };
 }
 
 function requireMatchingEtag(object: DAVCalendarObject, expectedEtag: string): void {
   if (!object.etag) throw new Error("Apple did not return an ETag for this event; the write was stopped.");
+
   if (object.etag !== expectedEtag) throw new Error("The event changed since it was read. Read it again before retrying the write.");
 }
 
 function requireDavSuccess(response: Response, action: string): void {
   if (response.ok) return;
+
   if (response.status === 409 || response.status === 412) throw new Error(`The event changed before ${action}. Read it again and retry.`);
+
   if (response.status === 401) throw new Error("iCloud rejected the app-specific password.");
+
   if (response.status === 403) throw new Error(`iCloud does not allow ${action} in this calendar.`);
+
   if (response.status === 404) throw new Error("The event or calendar no longer exists.");
   throw new Error(`iCloud could not ${action} the event (HTTP ${response.status}).`);
 }
 
 async function performMutation(context: MutationContext, write: () => Promise<Response>): Promise<void> {
   let response: Response;
+
   try {
     response = await write();
   } catch {
     throw new RecoverableMutationError({ ...context, code: "write_outcome_unknown", retrySafe: false });
   }
+
   if (response.status >= 500 || response.status === 408) {
     throw new RecoverableMutationError({ ...context, code: "write_outcome_unknown", retrySafe: false });
   }
+
   requireDavSuccess(response, context.operation);
 }
 
@@ -277,18 +310,23 @@ function mutationScope(events: CalendarEvent[], target: RecurrenceMutationTarget
   if (target.recurrenceId && (!target.scope || target.scope === "entire_series")) {
     throw new Error("recurrenceId requires this_instance or this_and_following scope.");
   }
+
   if (target.scope && target.scope !== "entire_series" && !target.recurrenceId) {
     throw new Error("recurrenceId is required for an occurrence-scoped change.");
   }
+
   if (!target.scope && events.some((event) => event.recurrence.length > 0 || event.recurrenceId)) {
     throw new Error("updateScope is required for a recurring event. Choose this_instance, this_and_following, or entire_series.");
   }
+
   return target.scope ?? "entire_series";
 }
 
 function primaryEvent(events: CalendarEvent[]): CalendarEvent {
   const event = events.find((candidate) => !candidate.recurrenceId) ?? events[0];
+
   if (!event) throw new Error("Calendar object does not contain an event.");
+
   return event;
 }
 
@@ -297,7 +335,9 @@ function selectedEvent(events: CalendarEvent[], recurrenceId?: string): Calendar
   const allDay = /^\d{4}-\d{2}-\d{2}$/.test(recurrenceId);
   const target = allDay ? recurrenceId : new Date(recurrenceId).toISOString();
   const event = events.find((candidate) => candidate.recurrenceId === target);
+
   if (!event) throw new Error("The requested recurring occurrence was not found.");
+
   return event;
 }
 
@@ -307,6 +347,7 @@ export async function getAccountProfile(credentials: Credentials): Promise<Accou
 
 export async function listCalendars(credentials: Credentials, baseFetch: typeof fetch = fetch): Promise<CalendarSummary[]> {
   const { calendars } = await getCalendars(credentials, baseFetch);
+
   return calendars.map((calendar) => ({
     id: encodeDavId(calendar.url),
     name: typeof calendar.displayName === "string" && calendar.displayName ? calendar.displayName : "Untitled calendar",
@@ -324,11 +365,14 @@ export async function searchEvents(
 ): Promise<EventSearchResult> {
   const range = requireTimeRange(options.start, options.end);
   const { client, calendars } = await getCalendars(credentials, baseFetch);
+
   const targets = options.calendarIds?.length
     ? options.calendarIds.map((calendarId) => ({ calendarId, calendar: requireDiscoveredCalendar(calendars, calendarId) }))
     : calendars.filter((calendar) => !calendar.components || calendar.components.includes("VEVENT")).map((calendar) => ({ calendarId: encodeDavId(calendar.url), calendar }));
+
   const eventGroups = await Promise.all(targets.map(({ calendar, calendarId }) => fetchEventsForCalendar(client, calendar, calendarId, credentials.username, credentials.defaultTimeZone, range)));
   const query = options.query?.trim().toLowerCase();
+
   const matches = eventGroups
     .flat()
     .filter((event) => !query || [event.title, event.description, event.location, event.structuredLocation?.title, event.structuredLocation?.address, event.organizer?.email, ...event.attendees.flatMap((attendee) => [attendee.name, attendee.email])].some((value) => value?.toLowerCase().includes(query)))
@@ -336,8 +380,10 @@ export async function searchEvents(
       || left.calendarId.localeCompare(right.calendarId)
       || left.id.localeCompare(right.id)
       || (left.recurrenceId ?? "").localeCompare(right.recurrenceId ?? ""));
+
   const events = matches.slice(options.offset, options.offset + options.limit);
   const hasMore = options.offset + events.length < matches.length;
+
   return {
     events,
     total: matches.length,
@@ -367,6 +413,7 @@ export async function getEvent(
   recurrenceId?: string,
 ): Promise<CalendarEvent> {
   const { calendar, object } = await loadEventObject(credentials, { calendarId, eventId }, baseFetch);
+
   return selectedEvent(eventFromObject(object, calendarId, credentials.username, calendarTimeZone(calendar, credentials.defaultTimeZone)), recurrenceId);
 }
 
@@ -376,21 +423,27 @@ export async function batchGetEvents(
   baseFetch: typeof fetch = fetch,
 ): Promise<BatchEventResult[]> {
   const { client, calendars } = await getCalendars(credentials, baseFetch);
+
   const prepared = selectors.map((selector) => {
     try {
       const calendar = requireDiscoveredCalendar(calendars, selector.calendarId);
+
       return { selector, calendar, url: requireEventUrl(calendar, selector.eventId) };
     } catch (error) {
       return { selector, error: publicError(error) };
     }
   });
+
   const groups = new Map<string, { calendar: DAVCalendar; urls: string[] }>();
+
   for (const item of prepared) {
     if (!("url" in item) || !item.url || !item.calendar) continue;
     const group = groups.get(item.selector.calendarId) ?? { calendar: item.calendar, urls: [] };
+
     if (!group.urls.includes(item.url)) group.urls.push(item.url);
     groups.set(item.selector.calendarId, group);
   }
+
   const objectsByUrl = new Map<string, DAVCalendarObject>();
   await Promise.all([...groups.values()].map(async ({ calendar, urls }) => {
     const objects = await client.fetchCalendarObjects({
@@ -399,12 +452,16 @@ export async function batchGetEvents(
       useMultiGet: true,
       urlFilter: (url) => urls.includes(new URL(url).href),
     });
+
     for (const object of objects) objectsByUrl.set(new URL(object.url).href, object);
   }));
+
   return prepared.map((item) => {
     if (!("url" in item) || !item.url) return { eventId: item.selector.eventId, error: item.error ?? "Invalid event selector." };
     const object = objectsByUrl.get(item.url);
+
     if (!object) return { eventId: item.selector.eventId, error: "Event was not found." };
+
     try {
       return { eventId: item.selector.eventId, event: primaryEvent(eventFromObject(object, item.selector.calendarId, credentials.username, calendarTimeZone(item.calendar, credentials.defaultTimeZone))) };
     } catch (error) {
@@ -418,12 +475,16 @@ function mergeBusyWindows(events: CalendarEvent[]): Array<{ start: string; end: 
     .flatMap((event) => event.availability === "busy" && event.status !== "cancelled"
       ? [{ start: event.start, end: event.end }] : [])
     .sort((left, right) => left.start.localeCompare(right.start));
+
   const merged: Array<{ start: string; end: string }> = [];
+
   for (const window of windows) {
     const previous = merged.at(-1);
+
     if (previous && window.start <= previous.end) previous.end = previous.end > window.end ? previous.end : window.end;
     else merged.push({ ...window });
   }
+
   return merged;
 }
 
@@ -436,11 +497,14 @@ export async function getAvailability(
 ): Promise<AvailabilityResult> {
   const range = requireTimeRange(start, end);
   const { client, calendars } = await getCalendars(credentials, baseFetch);
+
   const results = await Promise.all(calendarIds.map(async (calendarId) => {
     const calendar = requireDiscoveredCalendar(calendars, calendarId);
     const events = await fetchEventsForCalendar(client, calendar, calendarId, credentials.username, credentials.defaultTimeZone, range);
+
     return { calendarId, busy: mergeBusyWindows(events) };
   }));
+
   return { calendars: results };
 }
 
@@ -452,13 +516,16 @@ export async function createEvent(
 ): Promise<CalendarEvent> {
   const { client, calendars } = await getCalendars(credentials, baseFetch);
   const calendar = requireDiscoveredCalendar(calendars, calendarId);
+
   const built = buildEventCalendar(draft, credentials.username, {
     defaultTimeZone: credentials.defaultTimeZone,
     ...(calendar.timezone ? { timeZoneData: calendar.timezone } : {}),
   });
+
   const eventId = encodeDavId(new URL(built.filename, calendar.url).href);
   const context: MutationContext = { operation: "create", calendarId, eventId };
   await performMutation(context, () => client.createCalendarObject({ calendar, iCalString: built.data, filename: built.filename }));
+
   return readMutation(context, () => getEvent(credentials, calendarId, eventId, baseFetch));
 }
 
@@ -478,6 +545,7 @@ export async function updateEvent(
   });
   const context: MutationContext = { operation: "update", calendarId: selector.calendarId, eventId: selector.eventId, scope, ...(target.recurrenceId ? { recurrenceId: target.recurrenceId } : {}) };
   await performMutation(context, () => client.updateCalendarObject({ calendarObject: object }));
+
   return readMutation(context, () => getEvent(credentials, selector.calendarId, selector.eventId, baseFetch, scope === "entire_series" ? undefined : target.recurrenceId));
 }
 
@@ -491,13 +559,16 @@ export async function deleteEvent(
   requireMatchingEtag(object, selector.etag);
   const scope = mutationScope(eventFromObject(object, selector.calendarId, credentials.username, calendarTimeZone(calendar, credentials.defaultTimeZone)), target);
   const context: MutationContext = { operation: "delete", calendarId: selector.calendarId, eventId: selector.eventId, scope, ...(target.recurrenceId ? { recurrenceId: target.recurrenceId } : {}) };
+
   const updatedObject = scope === "entire_series" ? undefined : {
     ...object,
     data: cancelEventOccurrence(String(object.data), target.recurrenceId ?? "", scope),
   };
+
   await performMutation(context, () => updatedObject
     ? client.updateCalendarObject({ calendarObject: updatedObject })
     : client.deleteCalendarObject({ calendarObject: object }));
+
   return {
     deleted: true,
     eventId: selector.eventId,
@@ -517,5 +588,6 @@ export async function respondToInvitation(
   object.data = patchInvitationResponse(String(object.data), credentials.username, status);
   const context: MutationContext = { operation: "respond", calendarId: selector.calendarId, eventId: selector.eventId };
   await performMutation(context, () => client.updateCalendarObject({ calendarObject: object }));
+
   return readMutation(context, () => getEvent(credentials, selector.calendarId, selector.eventId, baseFetch));
 }
