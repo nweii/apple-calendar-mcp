@@ -16,6 +16,12 @@ Apple Calendar MCP runs headlessly in your own Cloudflare account. You don't nee
 
 For guided setup, use the [agent setup prompt](docs/agent-setup-prompt.md).
 
+## Compared with OpenAI's iCloud Calendar connector
+
+This is an independent MCP server that you deploy in your own Cloudflare account and connect to compatible AI clients. OpenAI also offers an iCloud Calendar connector for ChatGPT.
+
+In the tool catalog reviewed in November 2026, OpenAI's connector accepts text locations. This server also accepts verified latitude and longitude so Apple Calendar can display a map preview. It provides dedicated availability queries and batch event reads. OpenAI's connector includes contact lookup and attachment management, which this server does not expose.
+
 ## Before you deploy
 
 You need:
