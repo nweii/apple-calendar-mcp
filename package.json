@@ -7,9 +7,9 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "cloudflare:check": "wrangler deploy --dry-run --outdir dist",
-    "cloudflare:dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "cloudflare:check": "cf deploy --dry-run",
+    "cloudflare:dev": "cf dev",
+    "deploy": "cf deploy"
   },
   "cloudflare": {
     "bindings": {
@@ -40,14 +40,15 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "1.1.0",
+    "@cloudflare/vitest-plugin": "1.8.2",
     "@cloudflare/workers-types": "5.20260826.1",
     "@modelcontextprotocol/client": "2.3.1",
     "@msw/cloudflare": "0.0.1",
+    "cf": "1.0.0-beta.31",
     "msw": "2.14.0",
     "typescript": "5.9.2",
     "vitest": "4.1.11",
-    "wrangler": "4.126.0"
+    "wrangler": "4.162.0"
   },
   "overrides": {
     "@modelcontextprotocol/sdk": "1.32.1"
