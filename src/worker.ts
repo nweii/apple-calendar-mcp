@@ -1,4 +1,4 @@
-// Composes Cloudflare OAuth with the stateless Apple Calendar MCP endpoint.
+// Composes Cloudflare OAuth with the stateless iCloud Calendar MCP endpoint.
 
 import OAuthProvider from "@cloudflare/workers-oauth-provider";
 import { WorkerEntrypoint } from "cloudflare:workers";
@@ -29,7 +29,7 @@ export default new OAuthProvider<Env>({
   scopesSupported: ["calendar:read", "calendar:write"],
   resourceMetadata: {
     scopes_supported: ["calendar:read", "calendar:write"],
-    resource_name: "Apple Calendar",
+    resource_name: "iCloud Calendar MCP",
   },
   clientIdMetadataDocumentEnabled: true,
   allowPlainPKCE: false,

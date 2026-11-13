@@ -1,4 +1,4 @@
-# Apple Calendar MCP
+# iCloud Calendar MCP
 
 This repository provides single-account iCloud Calendar access through a stateless MCP server on Cloudflare Workers.
 
