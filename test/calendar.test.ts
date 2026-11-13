@@ -21,6 +21,7 @@ describe("expanded calendar reads", () => {
     const fetchCalendarObjects = vi.fn()
       .mockResolvedValueOnce([{ url: objectUrl, data: expanded }])
       .mockResolvedValueOnce([{ url: objectUrl, data: source }]);
+    // SAFETY: this read-only fixture implements the two DAV methods exercised by listEvents.
     vi.mocked(createDAVClient).mockResolvedValue({ fetchCalendars: vi.fn().mockResolvedValue([calendar]), fetchCalendarObjects } as unknown as Awaited<ReturnType<typeof createDAVClient>>);
     const events = await listEvents(credentials, encodeDavId(calendar.url), "2026-10-20T00:00:00-04:00", "2026-10-21T00:00:00-04:00", 20);
     expect(events.events[0]).toMatchObject({ start: "2026-10-20T22:00:00.000Z", startLocal: "2026-10-20T18:00:00-04:00" });
@@ -33,6 +34,7 @@ describe("expanded calendar reads", () => {
     const fetchCalendarObjects = vi.fn()
       .mockResolvedValueOnce([{ url: objectUrl, data: expanded }])
       .mockResolvedValueOnce([{ url: objectUrl, data: source }]);
+    // SAFETY: this read-only fixture implements the two DAV methods exercised by listEvents.
     vi.mocked(createDAVClient).mockResolvedValue({ fetchCalendars: vi.fn().mockResolvedValue([calendar]), fetchCalendarObjects } as unknown as Awaited<ReturnType<typeof createDAVClient>>);
     const events = await listEvents(credentials, encodeDavId(calendar.url), "2026-10-20T00:00:00-04:00", "2026-10-21T00:00:00-04:00", 20);
     expect(events.events[0]).toMatchObject({ start: "2026-10-20T13:00:00.000Z", end: "2026-10-20T14:00:00.000Z", startLocal: "2026-10-20T09:00:00-04:00" });
@@ -43,6 +45,7 @@ describe("expanded calendar reads", () => {
     const fetchCalendarObjects = vi.fn()
       .mockResolvedValueOnce([{ url: objectUrl, data: expanded }])
       .mockResolvedValueOnce([]);
+    // SAFETY: this read-only fixture implements the two DAV methods exercised by listEvents.
     vi.mocked(createDAVClient).mockResolvedValue({ fetchCalendars: vi.fn().mockResolvedValue([calendar]), fetchCalendarObjects } as unknown as Awaited<ReturnType<typeof createDAVClient>>);
     await expect(listEvents(credentials, encodeDavId(calendar.url), "2026-10-20T00:00:00-04:00", "2026-10-21T00:00:00-04:00", 20)).rejects.toThrow("canonical event");
   });

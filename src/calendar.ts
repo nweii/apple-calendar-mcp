@@ -414,8 +414,8 @@ export async function batchGetEvents(
 
 function mergeBusyWindows(events: CalendarEvent[]): Array<{ start: string; end: string }> {
   const windows = events
-    .filter((event) => event.availability === "busy" && event.status !== "cancelled")
-    .map(({ start, end }) => ({ start, end }))
+    .flatMap((event) => event.availability === "busy" && event.status !== "cancelled"
+      ? [{ start: event.start, end: event.end }] : [])
     .sort((left, right) => left.start.localeCompare(right.start));
   const merged: Array<{ start: string; end: string }> = [];
   for (const window of windows) {

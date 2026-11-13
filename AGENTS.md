@@ -17,6 +17,7 @@ This repository provides single-account iCloud Calendar access through a statele
 Run these checks serially before committing:
 
 ```bash
+bun run lint
 bun run test
 bun run typecheck
 bun run cloudflare:check
@@ -27,3 +28,7 @@ The change is complete when the checks pass and tracked files contain no account
 ## Documentation
 
 Keep setup steps in the README. Keep the copyable agent procedure in `docs/agent-setup-prompt.md`. Update both when a deployment or authorization step changes.
+
+## Lint policy
+
+Oxlint and the vendored anti-slop plugin enforce implementation checks. `tools/oxlint/anti-slop/UPSTREAM.md` records the captured source and intentional rule adaptations. Keep runtime boundary validation and typed optional-field construction; do not rewrite them solely to satisfy an upstream style preference. Run `bun run lint` before committing.

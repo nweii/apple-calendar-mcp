@@ -187,6 +187,7 @@ function toolSuccess<T extends Record<string, unknown>>(output: T) {
   };
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Thrown values are untrusted and are narrowed before exposing a public error.
 function toolFailure(error: unknown) {
   if (error instanceof RecoverableMutationError) {
     return { isError: true, content: [{ type: "text" as const, text: JSON.stringify({ ...error.recovery, message: error.message }) }] };

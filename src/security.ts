@@ -47,6 +47,7 @@ export function decodeDavId(id: string): string {
   return assertAppleCalDavUrl(new TextDecoder().decode(bytes)).href;
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Thrown values are untrusted and are narrowed before exposing a public error.
 export function publicError(error: unknown): string {
   const message = error instanceof Error ? error.message : "Unknown calendar error.";
   return message

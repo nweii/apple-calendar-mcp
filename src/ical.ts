@@ -155,6 +155,7 @@ function normalizeEmail(value: string): string {
   return value.replace(/^mailto:/i, "").trim().toLowerCase();
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- This boundary narrows untrusted third-party values before domain use.
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
@@ -265,6 +266,7 @@ function parseAttendee(property: ICAL.Property, selfEmail: string): EventAttende
   const rawEmail = stringValue(property.getFirstValue());
   if (!rawEmail) return undefined;
   const email = normalizeEmail(rawEmail);
+  // SAFETY: the lookup immediately falls back to required for keys absent from the iCalendar role table.
   const role = roleFromIcal[String(property.getFirstParameter("role") ?? "REQ-PARTICIPANT").toUpperCase() as keyof typeof roleFromIcal] ?? "required";
   const status = statusFromIcal[String(property.getFirstParameter("partstat") ?? "NEEDS-ACTION").toUpperCase()] ?? "needs-action";
   const name = stringValue(property.getFirstParameter("cn"));

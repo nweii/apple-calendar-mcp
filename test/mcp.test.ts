@@ -24,12 +24,14 @@ async function listTools(scopes: string[]) {
 
 describe("MCP tool scopes", () => {
   it("adds one configured custom domain without losing the safe workers.dev default", async () => {
+    // SAFETY: this host-validation test stops before accessing the omitted OAuth KV binding.
     const env = {
       ICLOUD_USERNAME: "owner@example.com",
       ICLOUD_APP_PASSWORD: "test-password",
       CALENDAR_TIME_ZONE: "UTC",
       MCP_HOSTNAME: "calendar.example.com",
     } as Env;
+    // SAFETY: this request path uses only the execution-context methods supplied by this fixture.
     const context = {
       waitUntil() {},
       passThroughOnException() {},
