@@ -55,7 +55,7 @@ Apple doesn't let you restrict an app-specific password to Calendar. This server
    - `APPROVAL_PASSWORD`: a separate password for approving client connections. Choose one you don't use for Apple.
 4. Change `CALENDAR_TIME_ZONE` from `UTC` to your IANA time zone name. Cloudflare cannot detect your time zone automatically.
 5. Turn off **Protect with Cloudflare Access**. The built-in approval page handles client connections; that toggle can block them. To use Access instead, follow [Add Cloudflare Access](#add-cloudflare-access) after deployment.
-6. Deploy the Worker and wait for the deployment to finish.
+6. Keep the deploy command `bunx wrangler deploy --config wrangler.jsonc` for this dashboard workflow. Deploy the Worker and wait for the deployment to finish.
 7. Copy the endpoint in this form: `https://<worker-name>.<account-subdomain>.workers.dev/mcp`.
 
 Cloudflare stores these values as encrypted secrets, outside the generated repository.
@@ -200,7 +200,9 @@ If you suspect compromise, revoke the old Apple app-specific password first. The
 - A custom domain that rejects `/mcp` usually has a missing or invalid `MCP_HOSTNAME`. Set the exact hostname and redeploy.
 - An approval page that fails closed has neither `APPROVAL_PASSWORD` nor a declared external guard. Add the approval secret unless you have already verified Cloudflare Access on `/authorize`.
 
-## Develop locally
+## Develop and deploy with cf
+
+Use Node.js 22.23+, 24.22+, or 26.12+ and Bun. The project pins the Cloudflare CLI (`cf`) and uses `cloudflare.config.ts` for local development, tests, and CLI deployments. `cf` is in beta.
 
 ```bash
 bun install
@@ -210,7 +212,11 @@ bun run typecheck
 bun run cloudflare:check
 ```
 
-Keep `.dev.vars` local. Deploy with `bun run deploy`.
+Keep `.dev.vars` local. Run `bun run cloudflare:dev` for local development.
+
+Before deploying with `cf`, sign in with `bunx cf auth login` and configure `cloudflare.config.ts` for your deployment. Set the time zone, existing OAuth KV namespace ID, and any custom domain or external authorization settings. `cf` treats this file as the configuration source and does not support Wrangler's `keep_vars`; copy dashboard settings into the file before switching an existing deployment. Keep secret values in Cloudflare and retain their `bindings.secret()` declarations. Run `bun run cloudflare:check`, then `bun run deploy`.
+
+The Deploy to Cloudflare button retains `wrangler.jsonc` as its dashboard setup template. For that workflow, keep the deploy command `bunx wrangler deploy --config wrangler.jsonc`; it preserves dashboard variables. The CLI workflow uses `cf` and `cloudflare.config.ts` instead. Keep shared runtime defaults in both configurations aligned.
 
 ## License
 
