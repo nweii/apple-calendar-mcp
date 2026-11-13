@@ -200,7 +200,7 @@ function toolFailure(error: unknown) {
 export function createCalendarServer(env: ToolEnv, scopes: readonly string[] = ["calendar:read"]) {
   // Bounds the tools/call arguments the SDK will validate; Workers accept far larger bodies than any calendar tool needs.
   const server = new McpServer(
-    { name: "icloud-calendar-mcp-server", version: "0.3.1" },
+    { name: "icloud-calendar-mcp-server", version: "0.4.0" },
     { maxToolInputElements: 10_000 },
   );
   const granted = new Set(scopes);
