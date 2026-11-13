@@ -143,13 +143,13 @@ const roleToIcal = {
   "non-participant": "NON-PARTICIPANT",
 } as const;
 
-const statusFromIcal: Record<string, AttendanceStatus> = {
-  "NEEDS-ACTION": "needs-action",
-  ACCEPTED: "accepted",
-  DECLINED: "declined",
-  TENTATIVE: "tentative",
-  DELEGATED: "delegated",
-};
+const statusFromIcal = new Map<string, AttendanceStatus>([
+  ["NEEDS-ACTION", "needs-action"],
+  ["ACCEPTED", "accepted"],
+  ["DECLINED", "declined"],
+  ["TENTATIVE", "tentative"],
+  ["DELEGATED", "delegated"],
+]);
 
 function normalizeEmail(value: string): string {
   return value.replace(/^mailto:/i, "").trim().toLowerCase();
@@ -268,8 +268,9 @@ function parseAttendee(property: ICAL.Property, selfEmail: string): EventAttende
   const email = normalizeEmail(rawEmail);
   // SAFETY: the lookup immediately falls back to required for keys absent from the iCalendar role table.
   const role = roleFromIcal[String(property.getFirstParameter("role") ?? "REQ-PARTICIPANT").toUpperCase() as keyof typeof roleFromIcal] ?? "required";
-  const status = statusFromIcal[String(property.getFirstParameter("partstat") ?? "NEEDS-ACTION").toUpperCase()] ?? "needs-action";
+  const status = statusFromIcal.get(String(property.getFirstParameter("partstat") ?? "NEEDS-ACTION").toUpperCase()) ?? "needs-action";
   const name = stringValue(property.getFirstParameter("cn"));
+
   return {
     email,
     role,
@@ -502,10 +503,12 @@ function parseInputTime(value: string, allDay: boolean, zone?: ICAL.Timezone): I
   return zone ? utc.convertToZone(zone) : utc;
 }
 
-function validateTimeRange(start: string, end: string, allDay: boolean, zone?: ICAL.Timezone): { start: ICAL.Time; end: ICAL.Time } {
+function validateTimeRange(start: string, end: string, allDay: boolean, zone?: ICAL.Timezone) {
   const startTime = parseInputTime(start, allDay, zone);
   const endTime = parseInputTime(end, allDay, zone);
+
   if (endTime.toUnixTime() <= startTime.toUnixTime()) throw new Error("Event end must be after event start.");
+
   return { start: startTime, end: endTime };
 }
 
@@ -600,7 +603,13 @@ function updateTimestamps(component: ICAL.Component, now: Date): void {
   component.updatePropertyWithValue("last-modified", timestamp);
 }
 
-export function buildEventCalendar(draft: EventDraft, selfEmail: string, options: BuildOptions = {}): { data: string; filename: string; uid: string } {
+export interface SerializedEventCalendar {
+  data: string;
+  filename: string;
+  uid: string;
+}
+
+export function buildEventCalendar(draft: EventDraft, selfEmail: string, options: BuildOptions = {}): SerializedEventCalendar {
   const allDay = draft.allDay ?? false;
   const now = options.now ?? new Date();
   const uid = options.uid ?? crypto.randomUUID();
@@ -690,10 +699,12 @@ function sameRecurrenceTime(component: ICAL.Component, target: ICAL.Time): boole
   return value instanceof ICAL.Time && (value.isDate ? value.toString() === target.toString() : value.toUnixTime() === target.toUnixTime());
 }
 
-function requireRecurringMaster(root: ICAL.Component): { component: ICAL.Component; event: ICAL.Event } {
+function requireRecurringMaster(root: ICAL.Component) {
   const component = primaryEvent(root);
   const event = new ICAL.Event(component);
+
   if (!event.isRecurring()) throw new Error("Occurrence-scoped changes require a recurring event.");
+
   return { component, event };
 }
 

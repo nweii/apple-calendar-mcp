@@ -124,7 +124,7 @@ const recurrenceIdSchema = z.union([
   z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 ]).describe("Original occurrence start returned as recurrenceId by an event search.");
 
-const recurrenceMutationShape = {
+const recurrenceMutationFields = {
   updateScope: z.enum(["entire_series", "this_instance", "this_and_following"]).optional().describe("Required for recurring events. Choose which occurrences to change; ask the user when unclear."),
   recurrenceId: recurrenceIdSchema.optional(),
 };
@@ -140,7 +140,7 @@ function requireOccurrenceId<T extends { updateScope?: "entire_series" | "this_i
 
 const recurrenceSchema = z.array(z.string().min(1).max(500)).max(20);
 
-const eventDraftShape = {
+const eventDraftFields = {
   title: z.string().min(1).max(500),
   start: z.string().min(1).describe("RFC3339 timestamp with an offset, or YYYY-MM-DD when allDay is true."),
   end: z.string().min(1).describe("RFC3339 timestamp with an offset, or the exclusive YYYY-MM-DD end date when allDay is true."),
@@ -357,7 +357,7 @@ export function createCalendarServer(env: ToolEnv, scopes: readonly string[] = [
       {
         title: "Create an Apple calendar event",
         description: "Create an event. Timed start/end require explicit offsets; timeZone accepts an IANA zone, defaults to the target calendar, and keeps recurring wall-clock time stable across DST. All-day end dates are exclusive. Use structuredLocation with verified coordinates for Apple map previews; if only an address is known, use location and never guess coordinates. Alerts are delivered by Calendar according to the user's OS settings. Adding attendees may cause iCloud to send invitations. If a write outcome is unknown or readback fails, read the returned event ID before retrying; another create call can duplicate the event.",
-        inputSchema: z.object({ calendarId: z.string().min(1), ...eventDraftShape }).strict(),
+        inputSchema: z.object({ calendarId: z.string().min(1), ...eventDraftFields }).strict(),
         outputSchema: z.object({ event: eventSchema }),
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       },
@@ -375,7 +375,7 @@ export function createCalendarServer(env: ToolEnv, scopes: readonly string[] = [
       {
         title: "Update an Apple calendar event",
         description: "Update one occurrence, this and later occurrences, or an entire event series after reading it. Requires the latest ETag and preserves unmodeled iCalendar fields, including attachments and unsupported alarms. Timed start/end remain canonical instants while an IANA timeZone controls wall-clock and DST semantics. Use structuredLocation only with verified coordinates; if only an address is known, use location. Attendees, display alerts, and recurrence are complete replacement lists. Recurring events require explicit updateScope. If a write outcome is unknown or readback fails, read the returned event ID before retrying.",
-        inputSchema: z.object({ ...mutationSelectorSchema, ...recurrenceMutationShape, patch: eventPatchSchema }).strict().superRefine(requireOccurrenceId),
+        inputSchema: z.object({ ...mutationSelectorSchema, ...recurrenceMutationFields, patch: eventPatchSchema }).strict().superRefine(requireOccurrenceId),
         outputSchema: z.object({ event: eventSchema }),
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       },
@@ -393,7 +393,7 @@ export function createCalendarServer(env: ToolEnv, scopes: readonly string[] = [
       {
         title: "Delete an Apple calendar event",
         description: "Delete one occurrence, this and later occurrences, or an entire event series after reading it. Requires the latest ETag and may send cancellation notices for invited events. Recurring events require explicit updateScope. If a write outcome is unknown, read the returned event ID before retrying.",
-        inputSchema: z.object({ ...mutationSelectorSchema, ...recurrenceMutationShape }).strict().superRefine(requireOccurrenceId),
+        inputSchema: z.object({ ...mutationSelectorSchema, ...recurrenceMutationFields }).strict().superRefine(requireOccurrenceId),
         outputSchema: z.object({
           deleted: z.literal(true),
           eventId: z.string(),

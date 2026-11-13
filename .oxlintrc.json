@@ -30,7 +30,7 @@
     "anti-slop/no-reduce-accumulator-copy": "error",
     "anti-slop/no-chained-type-assertions": "error",
     "anti-slop/no-conditional-empty-object-spread": "off",
-    "anti-slop/no-known-value-widening": "off",
+    "anti-slop/no-known-value-widening": "error",
     "anti-slop/no-module-mocking": "error",
     "anti-slop/no-object-parameters": "error",
     "anti-slop/no-reflect-apply": "error",
@@ -42,7 +42,7 @@
     "anti-slop/no-unknown-returns": "error",
     "anti-slop/no-unknown-type-aliases": "error",
     "anti-slop/no-widen-then-assert": "error",
-    "anti-slop/require-readable-spacing": "off",
+    "anti-slop/require-readable-spacing": "error",
     "anti-slop/require-safety-comment-for-type-assertion": "error"
   },
   "overrides": [
@@ -57,28 +57,11 @@
     },
     {
       "files": [
-        "src/mcp.ts"
-      ],
-      "rules": {
-        "anti-slop/no-shape-in-symbol-names": "off"
-      }
-    },
-    {
-      "files": [
         "test/calendar.test.ts",
         "test/reliability.test.ts"
       ],
       "rules": {
         "anti-slop/no-module-mocking": "off"
-      }
-    },
-    {
-      "files": [
-        "test/calendar.test.ts",
-        "test/mcp.test.ts"
-      ],
-      "rules": {
-        "anti-slop/no-chained-type-assertions": "off"
       }
     },
     {

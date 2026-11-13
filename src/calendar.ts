@@ -135,9 +135,10 @@ function requireEventUrl(calendar: DAVCalendar, eventId: string): string {
   return requestedUrl;
 }
 
-function requireTimeRange(start: string, end: string): { start: string; end: string } {
+function requireTimeRange(start: string, end: string) {
   const startDate = new Date(start);
   const endDate = new Date(end);
+
   if (!Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime()) || startDate >= endDate) {
     throw new Error("start and end must be valid ISO timestamps with start before end.");
   }

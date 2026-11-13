@@ -1,5 +1,6 @@
 // Verifies the scoped tool catalog and advertised schemas through an in-memory MCP connection.
 
+import { createExecutionContext } from "cloudflare:test";
 import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { describe, expect, it } from "vitest";
@@ -31,12 +32,8 @@ describe("MCP tool scopes", () => {
       CALENDAR_TIME_ZONE: "UTC",
       MCP_HOSTNAME: "calendar.example.com",
     } as Env;
-    // SAFETY: this request path uses only the execution-context methods supplied by this fixture.
-    const context = {
-      waitUntil() {},
-      passThroughOnException() {},
-      props: {},
-    } as unknown as ExecutionContext;
+
+    const context = createExecutionContext();
     const handler = createCalendarMcpHandler(env);
 
     async function status(url: string) {
