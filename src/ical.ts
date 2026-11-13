@@ -528,7 +528,7 @@ export function buildEventCalendar(draft: EventDraft, selfEmail: string, options
   const now = options.now ?? new Date();
   const uid = options.uid ?? crypto.randomUUID();
   const root = new ICAL.Component("vcalendar");
-  root.addPropertyWithValue("prodid", "-//Apple Calendar MCP//EN");
+  root.addPropertyWithValue("prodid", "-//iCloud Calendar MCP//EN");
   root.addPropertyWithValue("version", "2.0");
   root.addPropertyWithValue("calscale", "GREGORIAN");
   const calendarTimeZone = calendarTimeZoneId(options.timeZoneData);

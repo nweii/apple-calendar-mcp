@@ -1,4 +1,4 @@
-// Defines the scoped Apple Calendar MCP tools and binds each request to the Worker's iCloud secrets.
+// Defines the scoped iCloud Calendar MCP tools and binds each request to the Worker's iCloud secrets.
 
 import { McpServer } from "@modelcontextprotocol/server";
 import { createMcpHandler } from "agents/mcp/server";
@@ -200,7 +200,7 @@ function toolFailure(error: unknown) {
 export function createCalendarServer(env: ToolEnv, scopes: readonly string[] = ["calendar:read"]) {
   // Bounds the tools/call arguments the SDK will validate; Workers accept far larger bodies than any calendar tool needs.
   const server = new McpServer(
-    { name: "apple-calendar-mcp-server", version: "0.3.1" },
+    { name: "icloud-calendar-mcp-server", version: "0.3.1" },
     { maxToolInputElements: 10_000 },
   );
   const granted = new Set(scopes);
@@ -209,7 +209,7 @@ export function createCalendarServer(env: ToolEnv, scopes: readonly string[] = [
     server.registerTool(
       "calendar_get_profile",
       {
-        title: "Get Apple Calendar account",
+        title: "Get iCloud Calendar account",
         description: "Return the configured iCloud Calendar account identity and default IANA time zone. Use this time zone when interpreting the user's local-time requests.",
         inputSchema: z.object({}).strict(),
         outputSchema: z.object({ profile: z.object({ email: z.string(), provider: z.literal("iCloud"), timeZone: z.string() }) }),

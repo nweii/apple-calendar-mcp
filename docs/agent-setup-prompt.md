@@ -1,9 +1,9 @@
-# Set up Apple Calendar MCP with an agent
+# Set up iCloud Calendar MCP with an agent
 
 Copy the prompt below into an agent that can inspect your Cloudflare deployment and MCP client. Complete password entry yourself in the Apple and Cloudflare pages.
 
 ```text
-Help me set up Apple Calendar MCP by following the repository README for current UI details.
+Help me set up iCloud Calendar MCP by following the repository README for current UI details.
 
 1. For CLI setup, follow the README's cf workflow. Inspect `cloudflare.config.ts`, preserve the existing OAuth KV namespace and secret declarations, and copy all dashboard settings before deploying. Use `cf deploy --dry-run` before deployment. For the Deploy to Cloudflare button, retain the README's Wrangler deploy command and dashboard template.
 2. Guide me through the README's deployment steps. Have me enter the secrets directly in Cloudflare, set my IANA time zone, and turn off the deployment form's **Protect with Cloudflare Access** switch. You can verify setup without knowing my passwords.

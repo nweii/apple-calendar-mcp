@@ -29,7 +29,7 @@ describe("approval page", () => {
 
     expect(html).toContain("Codex &lt;Desktop&gt;");
     expect(html).toContain("cannot create, edit, or delete");
-    expect(html).toContain("Share Apple Calendar with Codex &lt;Desktop&gt;?");
+    expect(html).toContain("Share iCloud Calendar with Codex &lt;Desktop&gt;?");
     expect(html).toContain("Returning…");
     expect(html).toContain("font:400 .9375rem/1.5");
     expect(html).not.toContain("Connection request");

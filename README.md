@@ -1,10 +1,10 @@
-# Apple Calendar MCP
+# iCloud Calendar MCP
 
 Give Claude, ChatGPT, and other compatible AI assistants remote read and write access to your iCloud calendars.
 
-Apple Calendar MCP runs headlessly in your own Cloudflare account. You don't need a Mac or another computer hosting a local MCP server. Each deployment serves one Apple Account.
+iCloud Calendar MCP runs headlessly in your own Cloudflare account. You don't need a Mac or another computer hosting a local MCP server. Each deployment serves one Apple Account.
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/nweii/apple-calendar-mcp)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/nweii/icloud-calendar-mcp)
 
 ## Features
 
@@ -38,7 +38,7 @@ An agent can guide you and verify setup without knowing your passwords. Sign in 
 1. Open [account.apple.com](https://account.apple.com/) and sign in.
 2. Select **Sign-In and Security > App-Specific Passwords**.
 3. Select **Generate an app-specific password**.
-4. Give it a clear label, such as `Apple Calendar MCP`.
+4. Give it a clear label, such as `iCloud Calendar MCP`.
 5. Keep the generated value on the Apple page until Cloudflare asks for it.
 
 Changing or resetting your main Apple Account password revokes all app-specific passwords. See [Apple's instructions](https://support.apple.com/102654) for generating and revoking them.
@@ -67,7 +67,7 @@ Cloudflare creates `OAUTH_KV` automatically to store client registrations and au
 ## Connect an MCP client
 
 1. Add the deployed `/mcp` endpoint as a custom remote MCP server or app.
-2. Select **Connect**. Your client should discover OAuth and open the Apple Calendar MCP approval page.
+2. Select **Connect**. Your client should discover OAuth and open the iCloud Calendar MCP approval page.
 3. Confirm the client name and requested permission.
 4. Enter `APPROVAL_PASSWORD` and select **Allow and return**. Select **Cancel** if the page asks for more access than you want.
 5. Wait for the client to report that the connection is complete. Close the browser tab if it remains open after completion.

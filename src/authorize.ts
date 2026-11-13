@@ -61,7 +61,7 @@ function page(options: PageOptions): Response {
   const script = options.script ? `<script nonce="${nonce}">${options.script}</script>` : "";
   const formAction = ["'self'", ...(options.formActionOrigins ?? [])].join(" ");
   return new Response(
-    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light dark"><meta name="referrer" content="no-referrer"><title>${escape(options.title)}</title><style>${pageStyles}</style></head><body><div class="shell"><div class="brand"><span class="brand-mark" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg></span>Apple Calendar MCP</div>${options.content}</div>${script}</body></html>`,
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light dark"><meta name="referrer" content="no-referrer"><title>${escape(options.title)}</title><style>${pageStyles}</style></head><body><div class="shell"><div class="brand"><span class="brand-mark" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg></span>iCloud Calendar MCP</div>${options.content}</div>${script}</body></html>`,
     {
       status: options.status ?? 200,
       headers: {
@@ -93,12 +93,12 @@ export function approvalPage(options: {
   const permissionCopy = options.writeRequested
     ? `${clientName} can create, change, delete, and respond to events. Invitations and responses may notify other people.`
     : `${clientName} cannot create, edit, or delete anything.`;
-  const content = `<main class="card"><h1 class="title">Share Apple Calendar with ${clientName}?</h1><p class="lede">Approve this connection to your iCloud calendars.</p><div class="permission"><div class="permission-title"><span class="permission-icon" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25"><path d="m5 12 4 4L19 6"/></svg></span>${permissionTitle}</div><p class="permission-copy">${permissionCopy}</p></div>${error}<form method="post" action="${escape(options.action)}">${password}<div class="actions"><button class="button button--primary" type="submit" name="decision" value="allow"><span class="button-label">Allow and return</span><span class="button-progress" aria-live="polite"><span class="spinner" aria-hidden="true"></span>Returning…</span></button><button class="button button--secondary" type="submit" name="decision" value="deny" formnovalidate>Cancel</button></div></form><p class="fine-print">You can revoke access later from ${clientName}.</p></main>`;
+  const content = `<main class="card"><h1 class="title">Share iCloud Calendar with ${clientName}?</h1><p class="lede">Approve this connection to your iCloud calendars.</p><div class="permission"><div class="permission-title"><span class="permission-icon" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25"><path d="m5 12 4 4L19 6"/></svg></span>${permissionTitle}</div><p class="permission-copy">${permissionCopy}</p></div>${error}<form method="post" action="${escape(options.action)}">${password}<div class="actions"><button class="button button--primary" type="submit" name="decision" value="allow"><span class="button-label">Allow and return</span><span class="button-progress" aria-live="polite"><span class="spinner" aria-hidden="true"></span>Returning…</span></button><button class="button button--secondary" type="submit" name="decision" value="deny" formnovalidate>Cancel</button></div></form><p class="fine-print">You can revoke access later from ${clientName}.</p></main>`;
   return page({
     content,
     formActionOrigins: options.redirectOrigin ? [options.redirectOrigin] : [],
     status: options.status,
-    title: "Connect Apple Calendar",
+    title: "Connect iCloud Calendar",
     script: `document.querySelector("form")?.addEventListener("submit",event=>{if(event.submitter?.value!=="allow")return;const actions=document.querySelector(".actions");actions?.setAttribute("data-submitting","true");actions?.setAttribute("aria-busy","true")})`,
   });
 }
@@ -136,7 +136,7 @@ export const defaultHandler: ExportedHandler<AuthorizeEnv> = {
   async fetch(request, env) {
     const url = new URL(request.url);
     const guard = authorizationGuard(env);
-    if (url.pathname === "/") return Response.json({ service: "Apple Calendar MCP", mcp: "/mcp", authorization: guard });
+    if (url.pathname === "/") return Response.json({ service: "iCloud Calendar MCP", mcp: "/mcp", authorization: guard });
     if (url.pathname !== "/authorize") return new Response("Not found", { status: 404 });
     if (guard === "disabled") {
       return messagePage("Authorization is unavailable", "This server needs an approval password or a verified external authorization guard.", 503, "authorization_guard_missing");
