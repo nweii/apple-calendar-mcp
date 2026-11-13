@@ -115,6 +115,12 @@ Keep this test in the temporary calendar. If cleanup fails, have the agent give 
 | `calendar_delete_event` | `calendar:write` | Delete one occurrence, this and later occurrences, or an entire series. |
 | `calendar_respond_to_invitation` | `calendar:write` | Accept, decline, or tentatively accept an invitation. |
 
+List and search results include `total`, `offset`, `hasMore`, and `nextOffset`. Continue with `nextOffset` until `hasMore` is false for a complete schedule. Queries span at most 366 days. Concurrent calendar changes can shift offsets between pages.
+
+Update and delete require explicit `updateScope` for recurring events. One-time events can omit it.
+
+A mutation error can return JSON text with `write_outcome_unknown` or `write_succeeded_readback_failed`, the operation, and recoverable calendar and event IDs. Read that resource before retrying. The latter means iCloud acknowledged the write, so do not repeat it. A repeated create call can make a duplicate.
+
 Update, delete, and invitation-response tools require the latest ETag. Recurring occurrence changes also require the original `recurrenceId` returned by a search.
 
 Timed inputs use RFC 3339 timestamps with `Z` or an explicit offset. Clients can omit `timeZone`; creation uses the calendar's published IANA time zone, then `CALENDAR_TIME_ZONE`. Timed outputs include UTC and local values.

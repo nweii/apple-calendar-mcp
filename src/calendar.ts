@@ -68,6 +68,24 @@ interface EventMutationSelector extends EventSelector {
   etag: string;
 }
 
+export interface MutationRecovery extends EventSelector {
+  code: "write_outcome_unknown" | "write_succeeded_readback_failed";
+  operation: "create" | "update" | "delete" | "respond";
+  scope?: RecurrenceMutationScope;
+  recurrenceId?: string;
+  retrySafe: false;
+}
+
+export class RecoverableMutationError extends Error {
+  constructor(readonly recovery: MutationRecovery) {
+    super(recovery.code === "write_outcome_unknown"
+      ? "The write outcome is unknown. Read the event using the returned identifiers before retrying; do not repeat a create call."
+      : "The write succeeded, but reading it back failed. Read the event using the returned identifiers; do not repeat the write.");
+  }
+}
+
+type MutationContext = Omit<MutationRecovery, "code" | "retrySafe">;
+
 interface RecurrenceMutationTarget {
   scope?: RecurrenceMutationScope | undefined;
   recurrenceId?: string | undefined;
@@ -234,6 +252,40 @@ function requireDavSuccess(response: Response, action: string): void {
   throw new Error(`iCloud could not ${action} the event (HTTP ${response.status}).`);
 }
 
+async function performMutation(context: MutationContext, write: () => Promise<Response>): Promise<void> {
+  let response: Response;
+  try {
+    response = await write();
+  } catch {
+    throw new RecoverableMutationError({ ...context, code: "write_outcome_unknown", retrySafe: false });
+  }
+  if (response.status >= 500 || response.status === 408) {
+    throw new RecoverableMutationError({ ...context, code: "write_outcome_unknown", retrySafe: false });
+  }
+  requireDavSuccess(response, context.operation);
+}
+
+async function readMutation(context: MutationContext, read: () => Promise<CalendarEvent>): Promise<CalendarEvent> {
+  try {
+    return await read();
+  } catch {
+    throw new RecoverableMutationError({ ...context, code: "write_succeeded_readback_failed", retrySafe: false });
+  }
+}
+
+function mutationScope(events: CalendarEvent[], target: RecurrenceMutationTarget): RecurrenceMutationScope {
+  if (target.recurrenceId && (!target.scope || target.scope === "entire_series")) {
+    throw new Error("recurrenceId requires this_instance or this_and_following scope.");
+  }
+  if (target.scope && target.scope !== "entire_series" && !target.recurrenceId) {
+    throw new Error("recurrenceId is required for an occurrence-scoped change.");
+  }
+  if (!target.scope && events.some((event) => event.recurrence.length > 0 || event.recurrenceId)) {
+    throw new Error("updateScope is required for a recurring event. Choose this_instance, this_and_following, or entire_series.");
+  }
+  return target.scope ?? "entire_series";
+}
+
 function primaryEvent(events: CalendarEvent[]): CalendarEvent {
   const event = events.find((candidate) => !candidate.recurrenceId) ?? events[0];
   if (!event) throw new Error("Calendar object does not contain an event.");
@@ -280,7 +332,10 @@ export async function searchEvents(
   const matches = eventGroups
     .flat()
     .filter((event) => !query || [event.title, event.description, event.location, event.structuredLocation?.title, event.structuredLocation?.address, event.organizer?.email, ...event.attendees.flatMap((attendee) => [attendee.name, attendee.email])].some((value) => value?.toLowerCase().includes(query)))
-    .sort((left, right) => left.start.localeCompare(right.start));
+    .sort((left, right) => left.start.localeCompare(right.start)
+      || left.calendarId.localeCompare(right.calendarId)
+      || left.id.localeCompare(right.id)
+      || (left.recurrenceId ?? "").localeCompare(right.recurrenceId ?? ""));
   const events = matches.slice(options.offset, options.offset + options.limit);
   const hasMore = options.offset + events.length < matches.length;
   return {
@@ -298,10 +353,10 @@ export async function listEvents(
   start: string,
   end: string,
   limit: number,
+  offset: number = 0,
   baseFetch: typeof fetch = fetch,
-): Promise<CalendarEvent[]> {
-  const result = await searchEvents(credentials, { calendarIds: [calendarId], start, end, limit, offset: 0 }, baseFetch);
-  return result.events;
+): Promise<EventSearchResult> {
+  return searchEvents(credentials, { calendarIds: [calendarId], start, end, limit, offset }, baseFetch);
 }
 
 export async function getEvent(
@@ -401,10 +456,10 @@ export async function createEvent(
     defaultTimeZone: credentials.defaultTimeZone,
     ...(calendar.timezone ? { timeZoneData: calendar.timezone } : {}),
   });
-  const response = await client.createCalendarObject({ calendar, iCalString: built.data, filename: built.filename });
-  requireDavSuccess(response, "create");
   const eventId = encodeDavId(new URL(built.filename, calendar.url).href);
-  return getEvent(credentials, calendarId, eventId, baseFetch);
+  const context: MutationContext = { operation: "create", calendarId, eventId };
+  await performMutation(context, () => client.createCalendarObject({ calendar, iCalString: built.data, filename: built.filename }));
+  return readMutation(context, () => getEvent(credentials, calendarId, eventId, baseFetch));
 }
 
 export async function updateEvent(
@@ -416,14 +471,14 @@ export async function updateEvent(
 ): Promise<CalendarEvent> {
   const { calendar, client, object } = await loadEventObject(credentials, selector, baseFetch);
   requireMatchingEtag(object, selector.etag);
-  const scope = target.scope ?? "entire_series";
+  const scope = mutationScope(eventFromObject(object, selector.calendarId, credentials.username, calendarTimeZone(calendar, credentials.defaultTimeZone)), target);
   object.data = patchEventCalendar(String(object.data), patch, credentials.username, new Date(), scope, target.recurrenceId, {
     defaultTimeZone: credentials.defaultTimeZone,
     ...(calendar.timezone ? { timeZoneData: calendar.timezone } : {}),
   });
-  const response = await client.updateCalendarObject({ calendarObject: object });
-  requireDavSuccess(response, "update");
-  return getEvent(credentials, selector.calendarId, selector.eventId, baseFetch, scope === "entire_series" ? undefined : target.recurrenceId);
+  const context: MutationContext = { operation: "update", calendarId: selector.calendarId, eventId: selector.eventId, scope, ...(target.recurrenceId ? { recurrenceId: target.recurrenceId } : {}) };
+  await performMutation(context, () => client.updateCalendarObject({ calendarObject: object }));
+  return readMutation(context, () => getEvent(credentials, selector.calendarId, selector.eventId, baseFetch, scope === "entire_series" ? undefined : target.recurrenceId));
 }
 
 export async function deleteEvent(
@@ -432,18 +487,17 @@ export async function deleteEvent(
   target: RecurrenceMutationTarget = {},
   baseFetch: typeof fetch = fetch,
 ): Promise<{ deleted: true; eventId: string; scope: RecurrenceMutationScope; recurrenceId?: string }> {
-  const { client, object } = await loadEventObject(credentials, selector, baseFetch);
+  const { calendar, client, object } = await loadEventObject(credentials, selector, baseFetch);
   requireMatchingEtag(object, selector.etag);
-  const scope = target.scope ?? "entire_series";
-  const response = scope === "entire_series"
-    ? await client.deleteCalendarObject({ calendarObject: object })
-    : await client.updateCalendarObject({
-      calendarObject: {
-        ...object,
-        data: cancelEventOccurrence(String(object.data), target.recurrenceId ?? "", scope),
-      },
-    });
-  requireDavSuccess(response, "delete");
+  const scope = mutationScope(eventFromObject(object, selector.calendarId, credentials.username, calendarTimeZone(calendar, credentials.defaultTimeZone)), target);
+  const context: MutationContext = { operation: "delete", calendarId: selector.calendarId, eventId: selector.eventId, scope, ...(target.recurrenceId ? { recurrenceId: target.recurrenceId } : {}) };
+  const updatedObject = scope === "entire_series" ? undefined : {
+    ...object,
+    data: cancelEventOccurrence(String(object.data), target.recurrenceId ?? "", scope),
+  };
+  await performMutation(context, () => updatedObject
+    ? client.updateCalendarObject({ calendarObject: updatedObject })
+    : client.deleteCalendarObject({ calendarObject: object }));
   return {
     deleted: true,
     eventId: selector.eventId,
@@ -461,7 +515,7 @@ export async function respondToInvitation(
   const { client, object } = await loadEventObject(credentials, selector, baseFetch);
   requireMatchingEtag(object, selector.etag);
   object.data = patchInvitationResponse(String(object.data), credentials.username, status);
-  const response = await client.updateCalendarObject({ calendarObject: object });
-  requireDavSuccess(response, "respond to");
-  return getEvent(credentials, selector.calendarId, selector.eventId, baseFetch);
+  const context: MutationContext = { operation: "respond", calendarId: selector.calendarId, eventId: selector.eventId };
+  await performMutation(context, () => client.updateCalendarObject({ calendarObject: object }));
+  return readMutation(context, () => getEvent(credentials, selector.calendarId, selector.eventId, baseFetch));
 }

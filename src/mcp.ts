@@ -4,6 +4,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
 import {
+  RecoverableMutationError,
   batchGetEvents,
   createEvent,
   deleteEvent,
@@ -100,6 +101,14 @@ const eventSchema = z.object({
   etag: z.string().optional().describe("Concurrency token required by update, delete, and invitation-response tools."),
 });
 
+const eventPageSchema = z.object({
+  events: z.array(eventSchema),
+  total: z.number().int().nonnegative(),
+  offset: z.number().int().nonnegative(),
+  hasMore: z.boolean(),
+  nextOffset: z.number().int().nonnegative().optional(),
+});
+
 const selectorSchema = {
   calendarId: z.string().min(1).describe("Opaque calendar ID returned by calendar_list_calendars."),
   eventId: z.string().min(1).describe("Opaque event ID returned by a read or search tool."),
@@ -116,16 +125,16 @@ const recurrenceIdSchema = z.union([
 ]).describe("Original occurrence start returned as recurrenceId by an event search.");
 
 const recurrenceMutationShape = {
-  updateScope: z.enum(["entire_series", "this_instance", "this_and_following"]).default("entire_series"),
+  updateScope: z.enum(["entire_series", "this_instance", "this_and_following"]).optional().describe("Required for recurring events. Choose which occurrences to change; ask the user when unclear."),
   recurrenceId: recurrenceIdSchema.optional(),
 };
 
-function requireOccurrenceId<T extends { updateScope: "entire_series" | "this_instance" | "this_and_following"; recurrenceId?: string | undefined }>(value: T, context: z.RefinementCtx): void {
-  if (value.updateScope !== "entire_series" && !value.recurrenceId) {
+function requireOccurrenceId<T extends { updateScope?: "entire_series" | "this_instance" | "this_and_following" | undefined; recurrenceId?: string | undefined }>(value: T, context: z.RefinementCtx): void {
+  if (value.updateScope && value.updateScope !== "entire_series" && !value.recurrenceId) {
     context.addIssue({ code: "custom", message: "recurrenceId is required unless updateScope is entire_series.", path: ["recurrenceId"] });
   }
-  if (value.updateScope === "entire_series" && value.recurrenceId) {
-    context.addIssue({ code: "custom", message: "recurrenceId must be omitted when updateScope is entire_series.", path: ["recurrenceId"] });
+  if ((!value.updateScope || value.updateScope === "entire_series") && value.recurrenceId) {
+    context.addIssue({ code: "custom", message: "recurrenceId requires this_instance or this_and_following scope.", path: ["recurrenceId"] });
   }
 }
 
@@ -179,6 +188,9 @@ function toolSuccess<T extends Record<string, unknown>>(output: T) {
 }
 
 function toolFailure(error: unknown) {
+  if (error instanceof RecoverableMutationError) {
+    return { isError: true, content: [{ type: "text" as const, text: JSON.stringify({ ...error.recovery, message: error.message }) }] };
+  }
   return {
     isError: true,
     content: [{ type: "text" as const, text: publicError(error) }],
@@ -234,22 +246,16 @@ export function createCalendarServer(env: ToolEnv, scopes: readonly string[] = [
       "calendar_search_events",
       {
         title: "Search Apple calendar events",
-        description: "Search one, several, or all visible calendars in a bounded time window. Timed results include canonical UTC start/end plus local wall-clock values and an IANA timeZone. Results include recurring instances and can be filtered by title, notes, plain or structured location, organizer, or attendee text.",
+        description: "Search one, several, or all visible calendars in a bounded time window. Timed results include canonical UTC start/end plus local wall-clock values and an IANA timeZone. Results include recurring instances and can be filtered by title, notes, plain or structured location, organizer, or attendee text using case-insensitive literal substrings. Queries span at most 366 days. Follow nextOffset while hasMore is true for a complete schedule. Pages are not snapshots; calendar edits can shift offsets.",
         inputSchema: z.object({
           calendarIds: z.array(z.string().min(1)).min(1).max(20).optional().describe("Omit to search every visible event calendar."),
           start: z.iso.datetime({ offset: true }),
           end: z.iso.datetime({ offset: true }),
           query: z.string().max(500).optional(),
           limit: z.number().int().min(1).max(200).default(50),
-          offset: z.number().int().min(0).max(10_000).default(0),
+          offset: z.number().int().min(0).default(0),
         }).strict(),
-        outputSchema: z.object({
-          events: z.array(eventSchema),
-          total: z.number().int().nonnegative(),
-          offset: z.number().int().nonnegative(),
-          hasMore: z.boolean(),
-          nextOffset: z.number().int().nonnegative().optional(),
-        }),
+        outputSchema: eventPageSchema,
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       },
       async (input) => {
@@ -265,19 +271,20 @@ export function createCalendarServer(env: ToolEnv, scopes: readonly string[] = [
       "calendar_list_events",
       {
         title: "List Apple calendar events",
-        description: "List events from one calendar in a bounded time range. Use calendar_search_events for text search or multiple calendars.",
+        description: "List events from one calendar in a bounded time range. Use calendar_search_events for text search or multiple calendars. Queries span at most 366 days. Follow nextOffset while hasMore is true for a complete schedule. Pages are not snapshots; calendar edits can shift offsets.",
         inputSchema: z.object({
           calendarId: z.string().min(1),
           start: z.iso.datetime({ offset: true }),
           end: z.iso.datetime({ offset: true }),
           limit: z.number().int().min(1).max(200).default(100),
+          offset: z.number().int().min(0).default(0),
         }).strict(),
-        outputSchema: z.object({ events: z.array(eventSchema) }),
+        outputSchema: eventPageSchema,
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       },
-      async ({ calendarId, start, end, limit }) => {
+      async ({ calendarId, start, end, limit, offset }) => {
         try {
-          return toolSuccess({ events: await listEvents(credentials(env), calendarId, start, end, limit) });
+          return toolSuccess({ ...(await listEvents(credentials(env), calendarId, start, end, limit, offset)) });
         } catch (error) {
           return toolFailure(error);
         }
@@ -348,7 +355,7 @@ export function createCalendarServer(env: ToolEnv, scopes: readonly string[] = [
       "calendar_create_event",
       {
         title: "Create an Apple calendar event",
-        description: "Create an event. Timed start/end require explicit offsets; timeZone accepts an IANA zone, defaults to the target calendar, and keeps recurring wall-clock time stable across DST. All-day end dates are exclusive. Use structuredLocation with verified coordinates for Apple map previews; if only an address is known, use location and never guess coordinates. Alerts are delivered by Calendar according to the user's OS settings. Adding attendees may cause iCloud to send invitations.",
+        description: "Create an event. Timed start/end require explicit offsets; timeZone accepts an IANA zone, defaults to the target calendar, and keeps recurring wall-clock time stable across DST. All-day end dates are exclusive. Use structuredLocation with verified coordinates for Apple map previews; if only an address is known, use location and never guess coordinates. Alerts are delivered by Calendar according to the user's OS settings. Adding attendees may cause iCloud to send invitations. If a write outcome is unknown or readback fails, read the returned event ID before retrying; another create call can duplicate the event.",
         inputSchema: z.object({ calendarId: z.string().min(1), ...eventDraftShape }).strict(),
         outputSchema: z.object({ event: eventSchema }),
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -366,7 +373,7 @@ export function createCalendarServer(env: ToolEnv, scopes: readonly string[] = [
       "calendar_update_event",
       {
         title: "Update an Apple calendar event",
-        description: "Update one occurrence, this and later occurrences, or an entire event series after reading it. Requires the latest ETag and preserves unmodeled iCalendar fields, including attachments and unsupported alarms. Timed start/end remain canonical instants while an IANA timeZone controls wall-clock and DST semantics. Use structuredLocation only with verified coordinates; if only an address is known, use location. Attendees, display alerts, and recurrence are complete replacement lists.",
+        description: "Update one occurrence, this and later occurrences, or an entire event series after reading it. Requires the latest ETag and preserves unmodeled iCalendar fields, including attachments and unsupported alarms. Timed start/end remain canonical instants while an IANA timeZone controls wall-clock and DST semantics. Use structuredLocation only with verified coordinates; if only an address is known, use location. Attendees, display alerts, and recurrence are complete replacement lists. Recurring events require explicit updateScope. If a write outcome is unknown or readback fails, read the returned event ID before retrying.",
         inputSchema: z.object({ ...mutationSelectorSchema, ...recurrenceMutationShape, patch: eventPatchSchema }).strict().superRefine(requireOccurrenceId),
         outputSchema: z.object({ event: eventSchema }),
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -384,7 +391,7 @@ export function createCalendarServer(env: ToolEnv, scopes: readonly string[] = [
       "calendar_delete_event",
       {
         title: "Delete an Apple calendar event",
-        description: "Delete one occurrence, this and later occurrences, or an entire event series after reading it. Requires the latest ETag and may send cancellation notices for invited events.",
+        description: "Delete one occurrence, this and later occurrences, or an entire event series after reading it. Requires the latest ETag and may send cancellation notices for invited events. Recurring events require explicit updateScope. If a write outcome is unknown, read the returned event ID before retrying.",
         inputSchema: z.object({ ...mutationSelectorSchema, ...recurrenceMutationShape }).strict().superRefine(requireOccurrenceId),
         outputSchema: z.object({
           deleted: z.literal(true),
@@ -407,7 +414,7 @@ export function createCalendarServer(env: ToolEnv, scopes: readonly string[] = [
       "calendar_respond_to_invitation",
       {
         title: "Respond to an Apple calendar invitation",
-        description: "Accept, decline, or tentatively accept an invitation for the configured iCloud account. Requires the latest ETag and may notify the organizer.",
+        description: "Accept, decline, or tentatively accept an invitation for the configured iCloud account. Requires the latest ETag and may notify the organizer. If a write outcome is unknown or readback fails, read the returned event ID before retrying.",
         inputSchema: z.object({ ...mutationSelectorSchema, status: z.enum(["accepted", "declined", "tentative"]) }).strict(),
         outputSchema: z.object({ event: eventSchema }),
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
