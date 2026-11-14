@@ -3,7 +3,7 @@ import { bindings, defineConfig } from "cf/config";
 
 export default defineConfig({
   worker: {
-    name: "apple-calendar-mcp",
+    name: "icloud-calendar-mcp",
     compatibilityDate: "2026-08-27",
     compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
     entrypoint: "src/worker.ts",
