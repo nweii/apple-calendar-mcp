@@ -5,12 +5,14 @@
   "type": "module",
   "packageManager": "bun@1.3.14",
   "scripts": {
-    "test": "vitest run",
+    "test": "vitest run && bun run test:deploy",
     "typecheck": "tsc --noEmit",
     "cloudflare:check": "cf deploy --dry-run",
     "cloudflare:dev": "cf dev",
     "deploy": "cf deploy",
-    "lint": "oxlint --deny-warnings"
+    "lint": "oxlint --deny-warnings",
+    "deploy:existing": "bun run cloudflare:check && node scripts/deploy-existing.mjs",
+    "test:deploy": "node --test scripts/deploy-existing.test.mjs"
   },
   "cloudflare": {
     "bindings": {

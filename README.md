@@ -200,6 +200,19 @@ If you suspect compromise, revoke the old Apple app-specific password first. The
 - A custom domain that rejects `/mcp` usually has a missing or invalid `MCP_HOSTNAME`. Set the exact hostname and redeploy.
 - An approval page that fails closed has neither `APPROVAL_PASSWORD` nor a declared external guard. Add the approval secret unless you have already verified Cloudflare Access on `/authorize`.
 
+## Update an existing dashboard-managed Worker
+
+Use `bun run deploy:existing` when Cloudflare's dashboard owns the Worker's configuration. Set `CLOUDFLARE_API_TOKEN` (Workers Scripts edit permission), `CLOUDFLARE_ACCOUNT_ID`, and `WORKER_NAME` in your shell or Cloudflare Builds environment. Keep the token secret.
+
+```sh
+bun install --frozen-lockfile
+bun run deploy:existing
+```
+
+For Cloudflare Builds, connect this repository to the existing Worker, select your production branch, and use `bun run deploy:existing` as the deploy command. The build uses `cf deploy --dry-run`, checks that the named Worker exists and has the same compatibility date and flags as `cloudflare.config.ts`, then uploads only the bundled code through Cloudflare's [content-only endpoint](https://developers.cloudflare.com/api/resources/workers/subresources/services/subresources/environments/subresources/content/methods/update/). It does not apply the config file's bindings, variables, secrets, routes, or domains. OAuth KV data and dashboard configuration stay in place. No private source repository is required.
+
+This command cannot create or rename a Worker. If runtime settings differ, update the dashboard deliberately before retrying. A successful upload confirms Cloudflare accepted the code; verify the MCP connection after deployment. Use the workflow below when creating a Worker or managing its configuration in source.
+
 ## Develop and deploy with cf
 
 Use Node.js 22.23+, 24.22+, or 26.12+ and Bun. The project pins the Cloudflare CLI (`cf`) and uses `cloudflare.config.ts` for local development, tests, and CLI deployments. `cf` is in beta.
